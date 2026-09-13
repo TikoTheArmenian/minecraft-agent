@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Marc · Control room</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/icons.js" defer></script>
+    <script src="/app.js" defer></script>
+    <script src="/world.js" defer></script>
+    <script src="/activity.js" defer></script>
+</head>
+
+<body>
+    <main>
+        <header>
+            <div>
+                <p class="eyebrow">MINECRAFT COMPANION</p>
+                <h1>Marc <span>Control room</span></h1>
+            </div><button id="stop" class="stop">■ Stop all actions</button>
+        </header>
+        <section class="connect">
+            <div><span id="status" class="badge" role="status">Disconnected</span>
+                <p id="position">Connect to begin exploring.</p>
+            </div>
+            <form id="connection"><label>World label<input name="world" value="Agent Playground" maxlength="64"
+                        required></label><label>LAN port<input name="port" placeholder="Auto-detect" inputmode="numeric"
+                        pattern="[0-9]*"></label><button id="connect">Connect bot</button><button id="disconnect"
+                    type="button" class="secondary">Disconnect</button></form>
+        </section>
+        <p id="error" role="alert" hidden></p>
+        <section class="panel activity-panel" aria-label="Bot activity and logs">
+            <div class="section-title">
+                <h2>Bot activity</h2>
+                <div class="activity-badges"><strong id="activity-state">Waiting for controller</strong><span
+                        id="activity-mode">Mode unknown</span><span id="activity-heartbeat">Waiting for updates</span>
+                </div>
+            </div>
+            <p id="activity-summary" class="activity-summary" role="status">Connecting to the controller…</p>
+            <p id="activity-timing" class="muted small"></p>
+            <details class="activity-details" open>
+                <summary>Live activity log</summary>
+                <div class="log-toolbar"><label>Show<select id="log-filter">
+                            <option value="all">All events</option>
+                            <option value="problems">Warnings and errors</option>
+                        </select></label><label class="log-follow"><input id="log-follow" type="checkbox" checked>
+                        Follow new events</label><a href="/api/logs/download" download class="log-download">Download
+                        log</a></div>
+                <div id="activity-log" role="log" aria-label="Bot activity log" aria-live="off" tabindex="0"></div>
+                <p id="log-error" role="alert" hidden></p>
+                <p class="muted small">Latest 100 events from this controller session. For a continuous Terminal view,
+                    run <code>npm run logs</code> in the project folder. Saved file: <code
+                        id="log-file">data/logs/activity.log</code> (rotates at 2 MB).</p>
+            </details>
+        </section>
+        <div class="world-layout">
+            <section class="panel map-panel">
+                <div class="section-title">
+                    <div>
+                        <p class="eyebrow">YOUR WORLD, AT A GLANCE</p>
+                        <h2>Live block map</h2>
+                    </div><span id="map-live" role="status">Waiting for world</span>
+                </div>
+                <p class="muted">Click a block to inspect it. Drag across blocks to select a mining area. Use the
+                    buttons below to act.</p>
+                <div class="map-toolbar"><label>Follow<select id="map-focus">
+                            <option value="player">My player (nearest)</option>
+                            <option value="bot">Marc</option>
+                        </select></label>
+                    <div class="map-height"><span>View height</span>
+                        <div><button id="map-down" class="secondary"
+                                aria-label="Look four blocks lower">−</button><button id="map-reset-height"
+                                class="secondary">Player level</button><button id="map-up" class="secondary"
+                                aria-label="Look four blocks higher">+</button></div>
+                    </div><button id="map-refresh" class="secondary">Refresh / clear selection</button>
+                </div>
+                <div class="map-frame"><canvas id="world-map" width="792" height="792" tabindex="0" role="img"
+                        aria-label="Interactive top-down block map. Arrow keys move the cursor, Enter selects, Shift plus arrows expands the selection, Escape clears it."></canvas><span
+                        class="north">N ↑</span></div>
+                <p id="map-destination" class="muted" role="status">No movement destination.</p>
+                <p id="map-detail" class="map-detail" aria-live="polite">Connect to load nearby blocks.</p>
+                <div class="map-legend"><span class="green">Grass / leaves</span><span class="wood">Wood</span><span
+                        class="stone">Stone</span><span class="water">Water</span><span class="iron">Iron</span><span
+                        class="crop">Crops</span><span class="danger">Hazard</span><span
+                        class="player">Player</span><span class="bot">Bot</span></div>
+                <p id="map-selection" class="muted" role="status">No selection. One square is one block.</p>
+                <div class="map-actions"><button id="map-walk" disabled>Walk near selection</button><label>Mining
+                        depth<select id="map-depth">
+                            <option value="1">1 layer</option>
+                            <option value="2">2 layers</option>
+                            <option value="3">3 layers</option>
+                            <option value="4">4 layers</option>
+                        </select></label><button id="map-mine" disabled>Mine selection</button><button id="map-download"
+                        class="secondary" disabled>Save image</button></div>
+                <p id="map-caption" class="muted small">A cutaway image drawn from actual loaded blocks, not a Minecraft
+                    screenshot. Hidden or distant chunks may be unknown.</p>
+            </section>
+            <aside class="world-sidebar">
+                <section class="panel">
+                    <p class="eyebrow">CONTINUOUS PRODUCTION</p>
+                    <h2>FARMER</h2>
+                    <p class="muted">Expand irrigated plots, harvest ripe wheat, replant, and build chests for surplus
+                        wheat and seeds.</p><button id="wheat-farm" disabled>Start FARMER</button>
+                    <p id="wheat-farm-status" class="muted" role="status">Runs until you press Stop all actions.
+                        Requires Survival mode.</p>
+                    <p id="wheat-farm-stats" class="small muted"></p>
+                    <p class="small muted">Keeps wheat for food and seeds for planting. Preserves water and walking
+                        lanes. Works on loaded terrain within 80 blocks of its starting point; continues immediately
+                        while productive, otherwise checks again every 20 seconds.</p>
+                </section>
+                <section class="panel">
+                    <h2>LLM chat</h2>
+                    <p class="muted">Say “Marc, what are you doing?” in Minecraft chat, or whisper to Marc.
+                        Replies use current task, inventory, and nearby observations. Every 30 seconds, OpenAI also posts a brief progress summary; unchanged work gets a short “Still working on…” message.</p>
+                    <form id="llm-settings"><label><input id="llm-enabled" type="checkbox"> Enable OpenAI
+                            chat</label><label>Model ID<input id="llm-model" value="gpt-6-astra" maxlength="100"
+                                required></label><label>OpenAI API key<input id="llm-key" type="password"
+                                autocomplete="off" placeholder="Leave blank to keep saved key"></label><button>Save chat
+                            settings</button></form>
+                    <p id="llm-status" class="muted" role="status"></p>
+                    <p class="small muted">Addressed messages and game observations are sent to OpenAI. The key stays on
+                        this computer. Chat explains and advises; use the controls to start or stop skills.</p>
+                </section>
+                <section class="panel survival-panel">
+                    <p class="eyebrow">AUTONOMOUS STARTER ROUTINE</p>
+                    <h2>Run a skill</h2><label for="skill-choice">Skill</label><select id="skill-choice">
+                        <option value="survive">Survive — starter routine</option>
+                        <option value="farmer">FARMER — continuous wheat production</option><option value="get torches">Get torches — gather and craft 16</option>
+                    </select>
+                    <p id="skill-description" class="muted">Gathers supplies, crafts tools, then expands and harvests a
+                        wheat farm toward 128 wheat.</p>
+                    <div id="vitals" class="vitals">Connect to see health and hunger.</div>
+                    <p id="survive-gate" class="survive-gate" role="status">Connect Marc to check readiness.</p>
+                    <button id="survive" disabled aria-describedby="survive-gate">Connect first</button>
+                    <p id="survival-decision" class="muted" role="status">Ready when you are. Marc must be in
+                        Survival mode.</p>
+                    <ol id="survival-steps" class="survival-steps"></ol>
+                    <p id="skill-limits" class="muted small">Rule-based autonomy · up to 20 minutes · reachable
+                        resources within 80 blocks of start. Checks food between actions and pauses for close threats or
+                        critical health. Stop all actions cancels the routine.</p>
+                </section>
+                <section class="panel">
+                    <div class="section-title">
+                        <h2>What’s nearby?</h2><button id="survey" class="secondary" disabled>Scan</button>
+                    </div>
+                    <p id="survey-at" class="muted small">Resources within 24 blocks of Marc.</p>
+                    <div id="resource-cards" class="resource-cards"></div>
+                    <p id="nearby-threats" class="muted"></p>
+                    <h2 class="inventory-heading">Inventory</h2>
+                    <div id="inventory-chips" class="inventory-chips"><span class="muted">Waiting for world.</span>
+                    </div>
+                </section>
+            </aside>
+        </div>
+        <details class="advanced">
+            <summary>Commands, saved places &amp; individual skills</summary>
+            <div class="layout">
+                <section class="panel conversation">
+                    <div class="section-title">
+                        <h2>Talk to your bot</h2><span>Local commands</span>
+                    </div>
+                    <p class="muted">Try “survive”, “look around”, or a specific skill.</p>
+                    <div id="messages" role="log" aria-label="Bot conversation" aria-live="polite" tabindex="0"></div>
+                    <div class="examples"><button data-command="position">Where are you?</button><button
+                            data-command="find oak logs">Find oak logs</button><button
+                            data-command="help">Commands</button></div>
+                    <form id="command"><label class="sr" for="text">Command</label><input id="text"
+                            placeholder="Survive, look around, find iron ore…" autocomplete="off" maxlength="200"
+                            required><button>Send ↗</button></form>
+                </section>
+                <aside>
+                    <section class="panel current-inventory">
+                        <div class="section-title">
+                            <h2>Current inventory</h2><span id="inventory-summary" role="status">Waiting for
+                                world</span>
+                        </div>
+                        <p id="held-tool" class="muted">Connect to see the equipped item.</p>
+                        <div id="current-inventory" class="inventory-list" tabindex="0"
+                            aria-label="Current bot inventory"></div>
+                        <p class="muted small">Automatically equips the fastest suitable tool from the hotbar or
+                            inventory for each block.</p>
+                    </section>
+                    <section class="panel">
+                        <h2>Saved places</h2>
+                        <p class="muted">Save the bot’s current location. Places belong to this world label and
+                            dimension.</p>
+                        <form id="save"><label class="sr" for="place">Place name</label><input id="place"
+                                placeholder="e.g. base" maxlength="32" required><button>Save</button></form>
+                        <div id="waypoints"></div>
+                    </section>
+                </aside>
+            </div>
+
+            <section class="skills">
+                <section class="panel">
+                    <h2>Mine blocks</h2>
+                    <p class="muted">Search loaded terrain and mine up to the requested count. Uses suitable tools from
+                        Marc’s inventory.</p>
+                    <form id="mine-type"><label>Block<input name="block" value="stone"
+                                required></label><label>Count<input name="count" type="number" min="1" max="128"
+                                value="16" required></label><label>Radius<input name="radius" type="number" min="1"
+                                max="64" value="32" required></label><button>Mine blocks</button></form>
+                    <details>
+                        <summary>Clear a coordinate area</summary>
+                        <p class="muted">Both corners are included. Up to 512 positions. Removes reachable, breakable
+                            blocks inside the selection; unresolved blocks are reported.</p>
+                        <form id="mine-area">
+                            <fieldset>
+                                <legend>First corner</legend>
+                                <div class="coordinates"><label>X<input name="x1" type="number"
+                                            required></label><label>Y<input name="y1" type="number" min="-64" max="319"
+                                            required></label><label>Z<input name="z1" type="number" required></label>
+                                </div>
+                            </fieldset>
+                            <fieldset>
+                                <legend>Second corner</legend>
+                                <div class="coordinates"><label>X<input name="x2" type="number"
+                                            required></label><label>Y<input name="y2" type="number" min="-64" max="319"
+                                            required></label><label>Z<input name="z2" type="number" required></label>
+                                </div>
+                            </fieldset>
+                            <p id="volume" class="muted">Enter two corners to see the selection size.</p><button>Mine
+                                selected area</button>
+                        </form>
+                    </details>
+                </section>
+                <section class="panel">
+                    <h2>Tend crops</h2>
+                    <p class="muted">Harvest ripe crops, replant, and sow empty farmland. Give Marc seeds, carrots,
+                        or potatoes first. Start with an irrigated field and paths beside it.</p>
+                    <form id="farm"><label>Crop<select name="crop">
+                                <option value="wheat">Wheat</option>
+                                <option value="carrots">Carrots</option>
+                                <option value="potatoes">Potatoes</option>
+                                <option value="beetroot">Beetroot</option>
+                                <option value="all">All four crops</option>
+                            </select></label><label>Radius<input name="radius" type="number" min="1" max="32" value="16"
+                                required></label><button>Tend once</button></form>
+                    <p class="muted">A single pass over up to 256 farmland blocks. Young crops stay untouched. “All four
+                        crops” replants each crop’s own type; empty plots use available planting stock.</p>
+                    <h2 class="inventory-heading">Bot inventory</h2>
+                    <div id="inventory" class="inventory-chips"><p class="muted">Connect to see tools and planting stock.</p></div>
+                </section>
+            </section>
+            <section class="panel work-status">
+                <h2>Work progress</h2>
+                <p id="task" class="muted" role="status">No active task.</p>
+                <p id="work-counts" class="muted" role="status">No mining or farming work yet.</p>
+                <ul id="work-issues"></ul>
+            </section>
+            <section class="panel results">
+                <div class="section-title">
+                    <div>
+                        <h2>Nearby blocks</h2>
+                        <p class="muted">Known terrain only, including hidden blocks. Search results do not
+                            automatically mine anything.</p>
+                    </div>
+                    <form id="search"><label class="sr" for="block">Block name</label><input id="block" value="oak_log"
+                            required><label>Radius<input id="radius" type="number" min="1" max="64"
+                                value="32"></label><button>Search</button></form>
+                </div>
+                <div id="results">
+                    <p class="empty">Search for a block to see locations here.</p>
+                </div>
+            </section>
+        </details>
+        <footer>Java 1.21.1 · Open your world to LAN before connecting. Quit the Terminal bot first if Marc is
+            already playing.</footer>
+    </main>
+</body>
+
+</html>

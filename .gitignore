@@ -1,0 +1,7 @@
+node_modules/
+.auth/
+config.json
+.DS_Store
+
+data/
+public/textures/

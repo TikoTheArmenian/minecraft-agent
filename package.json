@@ -1,0 +1,24 @@
+{
+  "name": "minecraft-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Minecraft movement agent",
+  "scripts": {
+    "start": "node start.cjs",
+    "check": "node scripts/check.cjs",
+    "test": "node --test test/*.test.cjs",
+    "web": "node src/server.cjs",
+    "logs": "tail -n 80 -F data/logs/activity.log",
+    "textures": "node scripts/extract-textures.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "minecraft-protocol": "1.68.0",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "vec3": "0.2.0"
+  }
+}
