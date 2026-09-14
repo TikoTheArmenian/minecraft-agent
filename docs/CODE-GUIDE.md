@@ -20,7 +20,9 @@ Minecraft confirms the results. Finishing a local animation does not, by itself,
 
 | You want to understand… | Read… |
 | --- | --- |
-| Starting the website and its two bots | `src/server.cjs` |
+| Starting the website and every bot in the fleet | `src/server.cjs`, bot list in `src/fleet.cjs` |
+| Which skills exist, their aliases, labels and dashboard text | `src/skills.cjs` (the browser selector reads `/api/skills`) |
+| Trying one bot's skill live without the control room | `scripts/live-skill.cjs` |
 | Connecting, commands, starting skills, and Stop | `src/agent.cjs` |
 | The continuous wheat farm | `src/wheat-farm.cjs`, starting at `cycle()` and `run()` |
 | Farm height, protected ground, and irrigation | `src/farm-layout.cjs`; `hydrated()` in `src/survival.cjs`; `irrigationRemains()` in `src/wheat-farm.cjs` |

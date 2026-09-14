@@ -272,8 +272,8 @@ test('dirt reserve counts dirt rather than other construction materials', async 
   h.work.gather=async(names,enough,label)=>{
     assert.deepEqual(names,['dirt','grass_block'])
     assert.equal(enough(),false)
-    assert.match(label,/32/)
-    h.add('dirt',32);assert.equal(enough(),true);gathered=true
+    assert.match(label,/128/)
+    h.add('dirt',128);assert.equal(enough(),true);gathered=true
   }
   h.work.harvestTree=async()=>{assert.equal(gathered,true);h.work.cancel();h.work.check()}
   await h.work.run()
@@ -385,4 +385,69 @@ test('real physics descends natural canopy leaves only with a solid one-block la
   await h.simulate(new Promise(resolve=>setTimeout(resolve,10)))
   await h.simulate(work.descendCanopy(),6000)
   assert.equal(removed,3);assert.equal(h.bot.entity.position.floored().y,64)
+})
+
+test('Jerry can work from farmland over water without repeating an arrival',async()=>{
+  const h=fixture(),work=new TreeFarm(h.agent,1),target=new Vec3(2,65,0)
+  h.set('water',new Vec3(0,61,0));h.set('farmland',new Vec3(0,62,0))
+  h.set('oak_log',target)
+  h.bot.entity.position=new Vec3(.5,62.9375,.5)
+  h.bot.entity.onGround=true
+  work.travel=async()=>assert.fail('The current farmland stance already reaches the log')
+  assert.equal(work.canWork(target),true)
+  await work.approach(target)
+})
+test('storage interaction does not require mining permission or a tree stance',async()=>{
+  const h=fixture(),work=new TreeFarm(h.agent,1),target=new Vec3(2,65,0)
+  h.set('water',new Vec3(0,61,0));h.set('farmland',new Vec3(0,62,0));h.set('chest',target)
+  h.bot.entity.position=new Vec3(.5,62.9375,.5);h.bot.entity.onGround=true
+  h.bot.canDigBlock=()=>false
+  work.travel=async()=>assert.fail('The chest is already visible and reachable')
+  await work.approach(target,{interaction:true})
+  assert.equal(work.canWork(target),false)
+})
+test('failed farmland stance excludes both actual and pathfinder cells',async()=>{
+  const h=fixture(),work=new TreeFarm(h.agent,1),target=new Vec3(2,65,0)
+  h.set('water',new Vec3(0,61,0));h.set('farmland',new Vec3(0,62,0));h.set('oak_log',target)
+  h.bot.entity.position=new Vec3(.5,62.9375,.5);h.bot.entity.onGround=true
+  work.canWork=()=>false
+  let routes=0
+  work.travel=async goal=>{
+    routes++
+    assert.equal(goal.isEnd(new Vec3(0,62,0)),false)
+    assert.equal(goal.isEnd(new Vec3(0,63,0)),false)
+  }
+  await assert.rejects(work.approach(target),/three distinct approaches/)
+  assert.equal(routes,3)
+})
+
+test('missing saplings keep Barneett running beyond three retries and resume when supplied',async()=>{
+  const h=setup();h.agent.username='Barneett';h.add('dirt',64)
+  h.work.find=()=>[]
+  let waits=0,completed=false
+  h.work.harvestTree=async()=>{
+    await h.work.plantingStock(h.work.job)
+    completed=true
+    h.work.cancel()
+    h.work.check()
+  }
+  h.work.pause=async ms=>{
+    h.work.check()
+    assert.equal(ms,10000)
+    assert.equal(h.work.stalledPasses,0)
+    assert.equal(h.work.plan.status,'running')
+    assert.match(h.work.plan.decision,/Drop saplings beside Barneett/)
+    if(++waits===4)h.add('oak_sapling')
+  }
+  await h.work.run()
+  assert.equal(waits,4)
+  assert.equal(completed,true)
+  assert.equal(h.dug.length,0)
+})
+test('real movement stalls name the active tree farming bot',async()=>{
+  const h=setup();h.agent.username='Barneett';h.add('dirt',64)
+  h.work.harvestTree=async()=>{throw new Error('No useful route')}
+  await h.work.run()
+  assert.match(h.work.plan.decision,/Move Barneett to another side/)
+  assert.doesNotMatch(h.work.plan.decision,/Jerry/)
 })

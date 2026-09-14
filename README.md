@@ -324,7 +324,7 @@ The routine checks again every 20 seconds and runs until Stop, disconnection, a 
 
 ### OpenAI chat and wheat progress
 
-In the **LLM chat** card, enter your OpenAI API key and a model ID your API account can access, enable chat, and save. The key is saved only in ignored `data/llm.json` with owner-only file permissions, never returned to the browser or included in model context. `OPENAI_API_KEY` is also supported in the controller environment. API usage is billed through your API account.
+Set `OPENAI_API_KEY` in the controller environment or the ignored root `.env` file, then run `npm run web`. All bots share this server-side key. New bots have messaging enabled by default; the **LLM chat** card only enables or disables replies for the selected bot. Per-bot `llm.json` files store that preference, never credentials or model selection. Restart the controller after changing the environment. API usage is billed through your API account.
 
 Say `WalkBot, what are you doing?` in Minecraft chat or whisper to WalkBot. Each request includes current task, inventory, farm/survival progress, and nearby observations, plus a short conversation history. Uses the [OpenAI Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create) with `store:false`, a 20-second timeout, a single pending request, and a 10-request/minute limit. Replies are informational: chat has no command execution or movement tools. Messages not addressing WalkBot are ignored. Errors and configuration state appear in the chat card.
 
@@ -490,3 +490,80 @@ Bare `start` / `turn on` defaults to FARMER for Marc, Tree farmer for Jerry, Pra
 for Barneett, and Storage and Crafting for Sam. Ordinary conversation still uses the optional
 LLM configuration. Public commands must begin with the bot's name; other bots' messages
 cannot trigger skill controls.
+
+### Exchange: gifts and two-way trades
+
+Choose **Exchange** in the skill selector or send `Marc, exchange`. Marc checks nearby
+idle fleet bots and chooses a useful transfer from their actual inventories. Both sides
+agree using deterministic supply and reserve rules, then meet and verify the handoffs.
+If both have surplus the other needs, they trade; if only one does, that bot gives a gift.
+Automatic sharing considers role supplies, dirt, bread, torches, logs and saplings, keeps
+shared working reserves, and leaves carried tools and modified items alone. No API key
+or Supabase configuration is required.
+
+To select a partner or exact items, use Minecraft chat, whispers, or the web conversation:
+
+| Command | Result |
+| --- | --- |
+| `Marc, exchange with Jerry` | Decide a useful gift or trade with Jerry |
+| `Marc, give Jerry 16 dirt` | Give Jerry exactly 16 dirt |
+| `Marc, give 16 dirt to Jerry` | The same one-way gift |
+| `Marc, trade Jerry 16 wheat for 8 oak_log` | Give 16 wheat, then receive 8 oak logs |
+| `Marc, stop` or `Jerry, stop` | Cancel both sides of the meeting |
+
+Use Minecraft item IDs with underscores. Explicit transfers may spend working reserves;
+quantities are limited to 1–64 per direction. Damaged, enchanted, named or mixed-metadata
+stock is refused to avoid tossing the wrong item. Both bots must be connected to the same
+server/world/dimension, see one another within 32 blocks, and be in Survival mode. Start
+Exchange on **one bot**; it reserves its idle partner for the meeting. A busy partner is
+left alone—stop that bot’s current skill first. This is one finite meeting, not a background
+loop, and it does not resume the bots’ previous production skills afterward.
+
+The bots use existing walking routes to meet on dry ground, without building a route or
+mining terrain. Inventory space and both sides’ stock are checked again before the first
+handoff. Bot activity shows the partner, current action, confirmed given/received counts
+and blockers. Matching new item collection events plus inventory changes confirm delivery.
+
+Minecraft transfers happen by dropping and collecting items, so a two-way trade is not
+atomic. If a pickup is uncertain or either bot stops, the remaining handoff is cancelled
+and the result reports partial work. Already delivered items stay with the recipient;
+items already tossed may remain on the ground or reach another player. Check the inventories
+and meeting spot before retrying; the skill never automatically repeats an uncertain toss.
+
+Regression fixtures cover planning, reserves, gifts, reciprocal trades, capacity and metadata
+checks, partner isolation, confirmed pickups, cancellation, and disconnection. A live-world
+handoff still needs validation after loading the updated controller.
+
+### Nine bots, one fleet list, and five new production skills
+
+The fleet is now a single list in `src/fleet.cjs`: id, Minecraft username, data directory,
+default skill and profession. The server creates one independent `Agent` per entry, the
+browser builds the **Control …** tabs and the skill selector from `/api/fleet` and
+`/api/skills`, and Sam learns each newcomer's profession from the same list. Adding a bot is
+one line; adding a skill is one registry entry in `src/skills.cjs` plus its module.
+
+| Bot | Default skill | Command |
+| --- | --- | --- |
+| Marc | FARMER (wheat) | `farmer` |
+| Jerry | Tree farmer | `farm trees` |
+| Barneett | Practice movement | `practice-movement` |
+| Sam | Storage and Crafting | `storage and crafting` |
+| Orin | Ore finder | `find ores`, `find ores iron within 48` |
+| Cane | Sugarcane farmer | `farm sugarcane` |
+| Knight | Mob killer | `hunt mobs`, `hunt mobs within 16` |
+| Terra | Terraformer | `terraform`, `flatten x1 z1 to x2 z2 at y` |
+| Forge | Smelter | `smelt`, `smelt raw_iron 16` |
+
+Every new skill deposits surplus and fetches its tools through the shared storage helpers in
+`src/storage.cjs`, declares its working stock with `this.reserves`, and calls
+`agent.coordination.returnSupplies()` at a safe checkpoint so Sam's five-minute return
+policy applies. Each skill has its own guide under `docs/skills/`.
+
+To try one bot's skill live without touching the running control room:
+
+```sh
+node --env-file-if-exists=.env scripts/live-skill.cjs --bot orin --command "find ores" --seconds 180
+```
+
+`--pre "/give @s stone_pickaxe"` sends chat lines first; the harness prints the bot's
+activity log, position, inventory and a final JSON summary, then stops and disconnects.

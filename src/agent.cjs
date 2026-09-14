@@ -548,7 +548,7 @@ class Agent extends EventEmitter {
     if (skill.mode === 'survival' && this.bot.game.gameMode !== 'survival')
       throw new Error(`This skill needs Survival mode. Run /gamemode survival ${this.username}, then try again.`)
     if (type === 'storageCrafting') this.colony.scope(this)
-    const command = parseSkill(skill.aliases[0])
+    const command = control.command || parseSkill(skill.aliases[0])
     this.lastSkill = type
     if (this.workActive) {
       this.stop(false)
@@ -558,7 +558,9 @@ class Agent extends EventEmitter {
       return reply
     }
     this.startWork(command)
-    const reply = `Started ${skill.label}.`
+    const reply = this.state.task?.status === 'failed'
+      ? this.state.task.label
+      : `Started ${skill.label}.`
     this.say(reply)
     return reply
   }
@@ -581,7 +583,7 @@ class Agent extends EventEmitter {
     if (c.type === 'stop') return this.stop()
     if (c.type === 'help')
       return this.say(
-        'Use the live map to select where to walk or mine. Commands: skills • start <skill> • switch to <skill> • turn on • storage and crafting • create storage wood • scan storage • store surplus • organize storage • craft stone_pickaxe 2 • manage storage x y z category • farm trees • get torches • farmer • survive • look around • find oak logs [radius] • save base • go to base • mine stone 16 within 32 • farm wheat 16 • position • stop. Survive gathers resources, crafts tools, collects exposed iron and food, and plants a starter farm.',
+        'Use the live map to select where to walk or mine. Commands: exchange with Jerry • give Jerry 16 dirt • trade Jerry 16 wheat for 8 oak_log • skills • start <skill> • switch to <skill> • turn on • storage and crafting • create storage wood • scan storage • store surplus • organize storage • craft stone_pickaxe 2 • manage storage x y z category • farm trees • get torches • farmer • survive • look around • find oak logs [radius] • save base • go to base • mine stone 16 within 32 • farm wheat 16 • position • stop. Survive gathers resources, crafts tools, collects exposed iron and food, and plants a starter farm.',
       )
     if (c.type === 'status')
       return this.say(

@@ -410,11 +410,10 @@
         : s.llm?.enabled
           ? s.llm.configured
             ? 'Listening for mentions and whispers. Automatic summaries are off.'
-            : 'API key needed.'
+            : 'Set OPENAI_API_KEY in the server environment and restart.'
           : 'LLM chat is off.')
     if (!get('llm-settings').contains(document.activeElement)) {
       get('llm-enabled').checked = !!s.llm?.enabled
-      if (s.llm?.model) get('llm-model').value = s.llm.model
     }
     const v = s.vitals
     get('vitals').textContent = v
@@ -656,14 +655,11 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enabled: get('llm-enabled').checked,
-          model: get('llm-model').value.trim(),
-          apiKey: get('llm-key').value,
         }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       if (owner !== selectedBot) return
-      get('llm-key').value = ''
       get('llm-status').textContent = 'Settings saved.'
     } catch (error) {
       if (owner === selectedBot) get('llm-status').textContent = error.message

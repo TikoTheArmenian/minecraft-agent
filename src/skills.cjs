@@ -6,6 +6,18 @@
  */
 const skills = [
   {
+    type: 'exchange',
+    label: 'Exchange',
+    aliases: ['exchange', 'exchange items', 'start exchange'],
+    module: './exchange.cjs',
+    className: 'Exchange',
+    parser: 'parseExchange',
+    taskSkill: 'EXCHANGE',
+    description: 'Agree on useful surplus supplies with an idle bot, meet, and verify each handoff. Chat also supports give Jerry 16 dirt or trade Jerry 16 wheat for 8 oak_log.',
+    limits: 'One meeting within 32 blocks, up to 64 items each way. Automatic sharing keeps working reserves. Stop either bot cancels both sides.',
+    ready: 'Ready to choose a useful gift or trade with a nearby idle bot.',
+  },
+  {
     type: 'practiceMovement',
     label: 'Practice movement',
     aliases: ['practice-movement', 'practice movement', 'start practice movement'],
@@ -134,7 +146,8 @@ const skills = [
 ].map((s) => ({
   ...s,
   mode: 'survival',
-  factory: (agent, id) => new (require(s.module)[s.className])(agent, id),
+  // An entry may supply its own factory; otherwise the module/className pair is used lazily.
+  factory: s.factory || ((agent, id) => new (require(s.module)[s.className])(agent, id)),
 }))
 const skillFor = (type) => skills.find((s) => s.type === type)
 const skillForAlias = (text) => skills.find((s) => s.aliases.includes(text))

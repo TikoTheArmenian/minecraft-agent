@@ -12,7 +12,7 @@ const { setTimeout: sleep } = require('node:timers/promises')
 const { enchantments, comparisonBlock } = require('./item-tools.cjs')
 const { Travel, TravelMovements } = require('./travel.cjs')
 const { PickupGoal } = require('./pickup-goal.cjs')
-const { BlockApproachGoal, canView } = require('./block-approach.cjs')
+const { BlockApproachGoal, canView, workingCell } = require('./block-approach.cjs')
 
 // Crop definitions: the item used for planting and the age value that means fully grown.
 const CROPS = {
@@ -291,11 +291,11 @@ class Work {
   async approach(pos, options = {}) {
     this.check()
     const goal = new BlockApproachGoal(this.bot, pos, options)
-    if (!goal.isEnd(this.bot.entity.position.floored()) || !canView(this.bot, pos))
+    if (!goal.isEnd(workingCell(this.bot)) || !canView(this.bot, pos))
       await this.travel(goal, `Walk or swim to block ${key(pos)}`)
     // goto() may resolve for an empty path, so require reach and line of sight.
     const block = this.bot.blockAt(pos)
-    if (!block || (!this.bot.canDigBlock(block) && block.name !== 'farmland'))
+    if (!block || (!options.interaction && !this.bot.canDigBlock(block) && block.name !== 'farmland'))
       throw new Error('Target is not in reach.')
     if (!canView(this.bot, pos)) throw new Error('No reachable view of the block.')
   }

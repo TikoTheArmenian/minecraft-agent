@@ -46,15 +46,19 @@ async function main() {
   })
   agent.profile = publicProfile(profile)
   agent.fleet = { [profile.id]: agent }
-  let printed = 0
+  // Entries carry a monotonically increasing sequence in `id`; print everything newer than
+  // the last one shown so a burst larger than the state's log ring is not silently skipped.
+  let lastSequence = 0
+  const sequence = (entry) => Number(String(entry.id).split(':').pop()) || 0
   let lastLabel = ''
   const stamp = () => new Date().toISOString().slice(11, 19)
   agent.on('state', (state) => {
-    for (const entry of state.logs.slice(printed - state.logs.length || state.logs.length)) {
+    for (const entry of state.logs) {
+      if (sequence(entry) <= lastSequence) continue
+      lastSequence = sequence(entry)
       if (options.quiet && entry.level === 'debug') continue
       console.log(`${stamp()} [${entry.level}] ${entry.event}: ${entry.message}`)
     }
-    printed = state.logs.length
     const label = state.task ? `${state.task.skill || ''} ${state.task.label} · ${state.task.status}` : ''
     if (label && label !== lastLabel) {
       lastLabel = label

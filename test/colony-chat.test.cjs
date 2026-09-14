@@ -21,3 +21,31 @@ test('a new chest triggers an update even after the previous layout was acknowle
   assert.ok(c.queue.some(q=>q.message.includes('Store tools at 2 64 0')))
   assert.equal(peer.ackRevision,old)
 })
+
+test('failed storage side trips continue farming and respect cooldown even when nearly full',async t=>{
+  const a=fixture(t,'Jerry'),c=a.coordination,storage=require('../src/storage.cjs')
+  a.colony={enabled:true}
+  c.recall().storage={returnEveryMs:300000}
+  t.mock.method(require('../src/building-supplies.cjs'),'ensure',async()=>{})
+  let attempts=0
+  t.mock.method(storage,'store',async()=>{attempts++;throw new Error('No path to the goal.')})
+  const issues=[],w={bot:{inventory:{emptySlotCount:()=>0}},check(){},progress(){},addIssue:s=>issues.push(s)}
+  await c.returnSupplies(w)
+  await c.returnSupplies(w)
+  assert.equal(attempts,1)
+  assert.match(issues[0],/continuing farm work/)
+  assert.equal(c.recall().lastReturnAt,undefined)
+  c.recall().nextSupplyAttemptAt=0
+  await c.returnSupplies(w)
+  assert.equal(attempts,2)
+})
+test('supply cooldown never swallows cancellation, danger, or air recovery',async t=>{
+  const a=fixture(t,'Jerry'),c=a.coordination
+  a.colony={enabled:true};c.recall().storage={returnEveryMs:300000}
+  for(const error of [Object.assign(new Error('stop'),{code:'CANCELLED'}),Object.assign(new Error('air'),{code:'AIR_RECOVERY'}),Object.assign(new Error('danger'),{fatal:true})]){
+    const mock=t.mock.method(require('../src/building-supplies.cjs'),'ensure',async()=>{throw error})
+    await assert.rejects(c.returnSupplies({check(){}}),e=>e===error)
+    assert.equal(c.recall().nextSupplyAttemptAt,undefined)
+    mock.mock.restore()
+  }
+})

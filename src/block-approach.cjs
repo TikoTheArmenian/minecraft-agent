@@ -26,18 +26,25 @@ function visible(bot, pos, eye, reach = 4.5) {
 function canView(bot, pos) {
   return visible(bot, pos, bot.entity.position.offset(0, bot.entity.eyeHeight || 1.62, 0))
 }
+// Match pathfinder's air-cell convention when feet rest on farmland or a slab.
+function workingCell(bot) {
+  const p = bot.entity.position, cell = p.floored()
+  return bot.entity.onGround && p.y - cell.y > 0.001 &&
+    bot.blockAt(cell)?.boundingBox === 'block' ? cell.offset(0, 1, 0) : cell
+}
 class BlockApproachGoal extends goals.Goal {
-  constructor(bot, pos, { allowSurface = false } = {}) {
+  constructor(bot, pos, { allowSurface = false, interaction = false } = {}) {
     super()
     this.bot = bot
     this.pos = pos
     this.allowSurface = allowSurface
+    this.interaction = interaction
   }
   heuristic(node) {
     return Math.max(0, node.distanceTo(this.pos) - 3)
   }
   isEnd(node) {
-    if (node.x === this.pos.x && node.z === this.pos.z && node.y === this.pos.y + 1) return false
+    if (!this.interaction && node.x === this.pos.x && node.z === this.pos.z && node.y === this.pos.y + 1) return false
     // Work from stable ground. A swimming bob is not a dependable mining or
     // farming stance even when the target is momentarily within eye reach.
     const surface =
@@ -53,4 +60,4 @@ class BlockApproachGoal extends goals.Goal {
     )
   }
 }
-module.exports = { BlockApproachGoal, canView, visible }
+module.exports = { BlockApproachGoal, canView, visible, workingCell }

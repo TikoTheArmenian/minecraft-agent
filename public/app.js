@@ -411,7 +411,6 @@ function selectBot(id) {
   sessionStorage.setItem('selectedBot', id)
   messageSignature = resultSignature = waypointSignature = worldSignature = inventorySignature = ''
   $('#text').value = ''
-  $('#llm-key').value = ''
   $('#error').hidden = true
   updateScope()
   $('#map-focus').value = 'bot'

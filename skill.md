@@ -218,3 +218,23 @@ For live diagnosis, use Bot activity, `npm run logs`, and the selected bot's `/b
 For requested runtime activation, inspect the current fleet and listening process first. Other tasks may have changed files or restarted the server. Preserve other bots' connection/task choices, avoid duplicate servers, and reconnect using the current LAN settings. Don't restart a live session just for documentation. After loading code, verify actual connection and progress rather than only an HTTP 200. A cancelled teleport task should stay cancelled until the user chooses new work.
 
 Keep explanations readable: comment why a reserve, retry limit, acknowledgement, or geometry check exists. Log decisions and confirmed progress to the dashboard without flooding Minecraft chat. Automatic 30-second chat summaries were explicitly disabled; don't restore them as part of a new skill. End with what changed, how it was verified, what is actually running, and any concrete remaining limitation.
+
+## Building-stock policy (current user requirement)
+
+Keep 128 of each carried supported building material (including dirt and cobblestone) out of
+normal surplus deposits and recipe spending. Reuse `src/building-supplies.cjs`: when combined
+usable building stock falls below eight, refill toward 128 total, taking shared storage first
+and gathering only the shortfall. Dirt-only climbing jobs request 128 dirt specifically.
+The low-stock trigger and full-batch target are distinct; do not revert to 12/16/32-block trips.
+A failed configured database is not an empty chest and must not trigger an unsafe bypass.
+Run replenishment at safe work checkpoints, before discretionary work, without interrupting
+an active transfer or climbing column. Gathering is bounded and reports a shortfall if safe
+nearby terrain cannot supply the batch. Future skills must call this shared policy too.
+
+Storage expansion uses `storage-steward.expand`: fewer than four empty slots across a central
+category triggers one new, separately placed chest per pass. Inspect current capacity again
+after sourcing/crafting materials, stay inside the hub, enroll and label the confirmed chest,
+and let named coordination distribute the new location. Empty remote capacity does not solve
+a full central store. Include undeposited carried tools in production-buffer counts: counting
+only chest stock caused repeated crafting when a full chest rejected the output. Missing wood
+or placement space needs a visible bounded blocker, not repeated duplicate crafting jobs.

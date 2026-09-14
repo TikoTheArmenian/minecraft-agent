@@ -81,15 +81,15 @@ async function list(w) {
   return result
 }
 async function approach(w, p) {
-  try { await w.approach(p) } catch(error) {
+  try { await w.approach(p, { interaction: true }) } catch(error) {
     if (error.message !== 'No reachable view of the block.') throw error
     // A cell center can see the chest while the bot at its edge cannot. Choose another stance.
     const {BlockApproachGoal}=require('./block-approach.cjs')
-    const goal=new BlockApproachGoal(w.bot,p), start=w.bot.entity.position.floored()
+    const goal=new BlockApproachGoal(w.bot,p,{interaction:true}), start=w.bot.entity.position.floored()
     const valid=goal.isEnd.bind(goal)
-    goal.isEnd=node=>!node.equals(start) && valid(node)
+    goal.isEnd=node=>!(node.x===start.x && node.z===start.z) && valid(node)
     await w.travel(goal, 'Adjusting chest approach for a clear view')
-    await w.approach(p)
+    await w.approach(p, { interaction: true })
   }
 }
 async function withChest(w, position, fn, { reconcile = false } = {}) {

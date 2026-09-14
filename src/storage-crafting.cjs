@@ -13,6 +13,7 @@ function parseStorage(text) {
     'store surplus': 'store',
     'organize storage': 'organize',
     'consolidate storage': 'consolidate',
+    'expand storage': 'expand',
     'label storage': 'label',
     'supply tools': 'tools',
   }
@@ -157,8 +158,9 @@ class StorageCrafting extends Work {
           if (!['label','tools'].includes(command.action)) await storage.scan(this)
           const {position:hub}=await db('hub_get')
           const steward=require('./storage-steward.cjs')
-          if (['consolidate','label','tools'].includes(command.action) && !hub) throw new Error('Set storage hub X Y Z first.')
-          if (hub && (continuous || command.action==='label')) await steward.label(this,hub)
+          if (['consolidate','label','tools','expand'].includes(command.action) && !hub) throw new Error('Set storage hub X Y Z first.')
+          if (hub && (continuous || command.action==='expand')) await steward.expand(this,hub)
+          if (hub && (continuous || ['label','expand'].includes(command.action))) await steward.label(this,hub)
           if (command.action !== 'scan') await storage.store(this)
           if (hub && (continuous || ['consolidate','organize'].includes(command.action))) await steward.consolidate(this,hub)
           if (hub && (continuous || command.action==='tools')) await steward.tools(this,hub)

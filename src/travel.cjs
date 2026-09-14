@@ -200,13 +200,15 @@ class TravelMovements extends Movements {
       return true
     })
   }
+  // A surface swimmer must be able to climb out of an irrigation hole.
+  // Keep crop-protecting jump restrictions for routes that start on land.
   getMoveJumpUp(node, dir, neighbors) {
     this.surfaceJump = water(this.bot.blockAt(node)) ? node : null
     const start = neighbors.length
     try {
       super.getMoveJumpUp(node, dir, neighbors)
       for (let i = neighbors.length - 1; i >= start; i--)
-        if (this.bot.blockAt(neighbors[i].offset(0, -1, 0))?.name === 'farmland')
+        if (!this.surfaceJump && this.bot.blockAt(neighbors[i].offset(0, -1, 0))?.name === 'farmland')
           neighbors.splice(i, 1)
     } finally {
       this.surfaceJump = null
@@ -219,6 +221,7 @@ class TravelMovements extends Movements {
       super.getMoveDiagonal(node, dir, neighbors)
       for (let i = neighbors.length - 1; i >= start; i--)
         if (
+          !this.surfaceJump &&
           neighbors[i].y > node.y &&
           this.bot.blockAt(neighbors[i].offset(0, -1, 0))?.name === 'farmland'
         )

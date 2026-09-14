@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {LlmChat}=require('../src/llm-chat.cjs')
-function setup(t,fetchImpl){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mc-chat-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const sent=[];const bot={username:'Marc',chat:s=>sent.push(s),whisper:(u,s)=>sent.push(`${u}: ${s}`)};const agent={username:'Marc',dataDir:dir,bot,epoch:1,state:{task:{status:'running',label:'Planting wheat'},inventory:[]},publish(){},log(){},say(){}};const chat=new LlmChat(agent,{fetchImpl});chat.configure({enabled:true,model:'test-model',apiKey:'test-secret'});return {chat,agent,bot,sent}}
+function setup(t,fetchImpl){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mc-chat-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const sent=[];const bot={username:'Marc',chat:s=>sent.push(s),whisper:(u,s)=>sent.push(`${u}: ${s}`)};const agent={username:'Marc',dataDir:dir,bot,epoch:1,state:{task:{status:'running',label:'Planting wheat'},inventory:[]},publish(){},log(){},say(){}};const chat=new LlmChat(agent,{fetchImpl,env:{OPENAI_API_KEY:"test-secret"}});chat.configure({enabled:true});return {chat,agent,bot,sent}}
 test('addressed chat uses live task and never exposes key in state or prompt',async t=>{
  let body;const f=setup(t,async(url,o)=>{body=JSON.parse(o.body);return {ok:true,json:async()=>({output:[{type:'message',content:[{type:'output_text',text:'I am planting wheat.'}]}]})}})
  await f.chat.receive(f.bot,'Player','Marc, what are you doing?');assert.equal(f.sent.length,1);assert.match(body.input[0].content,/Planting wheat/);assert.equal(JSON.stringify(body).includes('test-secret'),false);assert.equal(JSON.stringify(f.agent.state).includes('test-secret'),false);assert.equal(body.store,false);assert.equal(f.agent.state.llm.busy,false)
@@ -22,4 +22,29 @@ test('periodic summaries compare prior progress and request terse unchanged upda
  assert.equal(JSON.parse(bodies[1].input[0].content).unchanged,true)
  assert.match(bodies[1].instructions,/Still working/);assert.ok(f.sent.every(s=>s.startsWith('[Update] ')));assert.equal(f.chat.history.length,0)
  f.agent.state.task.counts={planted:4};await f.chat.summarize();assert.equal(JSON.parse(bodies[2].input[0].content).unchanged,false)
+})
+test('chat configuration accepts only the enabled flag and persists no credentials', t => {
+ const f=setup(t,async()=>assert.fail('unexpected request'))
+ assert.throws(()=>f.chat.configure({enabled:true,apiKey:'browser-secret'}),/Only the chat enabled/)
+ assert.throws(()=>f.chat.configure({enabled:true,model:'browser-model'}),/Only the chat enabled/)
+ assert.deepEqual(JSON.parse(fs.readFileSync(f.chat.file)),{enabled:true})
+ f.chat.configure({enabled:false});assert.equal(f.agent.state.llm.enabled,false)
+})
+test('legacy key is never used when the environment key is missing', async t => {
+ const f=setup(t,async()=>assert.fail('must not use legacy credentials'))
+ fs.writeFileSync(f.chat.file,JSON.stringify({enabled:true,apiKey:'legacy-secret',model:'legacy-model'}))
+ const chat=new LlmChat(f.agent,{env:{},fetchImpl:async()=>assert.fail('unexpected request')})
+ await chat.receive(f.bot,'Player','Marc hello')
+ assert.equal(f.agent.state.llm.configured,false)
+ assert.match(f.agent.state.llm.error,/OPENAI_API_KEY/)
+ assert.equal(JSON.stringify(chat.config).includes('legacy-secret'),false)
+})
+test('new bots get messaging automatically from the shared environment', async t => {
+ const f=setup(t,async()=>{});fs.unlinkSync(f.chat.file);let headers,body
+ const chat=new LlmChat(f.agent,{env:{OPENAI_API_KEY:'shared-secret'},fetchImpl:async(url,options)=>{headers=options.headers;body=JSON.parse(options.body);return {ok:true,json:async()=>({output:[]})}}})
+ assert.equal(f.agent.state.llm.enabled,true)
+ await chat.receive(f.bot,'Player','Marc hello')
+ assert.equal(headers.Authorization,'Bearer shared-secret')
+ assert.equal(body.model,f.agent.state.llm.model)
+ assert.equal(JSON.stringify(f.agent.state).includes('shared-secret'),false)
 })

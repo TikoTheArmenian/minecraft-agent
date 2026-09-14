@@ -10,7 +10,7 @@ const { Vec3 } = require('vec3')
 const { Survival } = require('./survival.cjs')
 const Move = require('mineflayer-pathfinder/lib/move')
 const { Movements, goals } = require('mineflayer-pathfinder')
-const { BlockApproachGoal, canView } = require('./block-approach.cjs')
+const { BlockApproachGoal, canView, workingCell } = require('./block-approach.cjs')
 const { BUILDING_BLOCKS, Travel, TravelMovements } = require('./travel.cjs')
 const { Work } = require('./work.cjs')
 const { isAir } = require('./world.cjs')
@@ -174,7 +174,7 @@ class TreeFarm extends Survival {
   // Live reach must use the actual eye position, not the center of its cell.
   // On narrow canopy stairs those two sight lines can lie on opposite sides of leaves.
   canWork(pos) {
-    const feet = this.bot.entity.position.floored(),
+    const feet = workingCell(this.bot),
       block = this.bot.blockAt(pos)
     return (
       !this.bot.entity.isInWater &&
@@ -186,11 +186,13 @@ class TreeFarm extends Survival {
     )
   }
   async approach(pos, options = {}) {
+    if (options.interaction) return Work.prototype.approach.call(this, pos, options)
     const excluded = new Set()
     for (let attempt = 0; attempt < 3; attempt++) {
       this.check()
       if (this.canWork(pos) || options.allowSurface && canView(this.bot, pos) && this.bot.canDigBlock(this.bot.blockAt(pos))) return
       excluded.add(key(this.bot.entity.position.floored()))
+      excluded.add(key(workingCell(this.bot)))
       const goal = new BlockApproachGoal(this.bot, pos, options)
       const base = goal.isEnd.bind(goal)
       goal.isEnd = node => !excluded.has(key(node)) && base(node) &&
@@ -683,9 +685,9 @@ class TreeFarm extends Survival {
       }
     }
     if (this.count(seed) < needed)
-      throw new Error(
+      throw Object.assign(new Error(
         `Need ${needed} ${seed.replaceAll('_', ' ')} reserved for replanting. Drop saplings beside ${this.agent.username}.`,
-      )
+      ), { code: 'WAITING_FOR_SAPLINGS' })
   }
   // Work through the inspected tree job; leave enough information to resume and replant it.
   async harvestTree() {
@@ -803,14 +805,14 @@ class TreeFarm extends Survival {
             continue
           }
           const progressAfter = (this.job?.removed || 0) + (this.job?.planted.length || 0)
-          this.stalledPasses = !this.job || progressAfter > progressBefore || (this.job.scaffolds?.length || 0) < supportsBefore ? 0 : (this.stalledPasses || 0) + 1
+          this.stalledPasses = error.code === 'WAITING_FOR_SAPLINGS' || !this.job || progressAfter > progressBefore || (this.job.scaffolds?.length || 0) < supportsBefore ? 0 : (this.stalledPasses || 0) + 1
           if (this.job && this.stalledPasses >= 3)
             throw new Error(
-              `No progress after three attempts. Unfinished tree saved. ${error.message} Move Jerry to another side of the tree or provide access blocks, then restart tree farming.`,
+              `No progress after three attempts. Unfinished tree saved. ${error.message} Move ${this.agent.username || this.bot.username} to another side of the tree or provide access blocks, then restart tree farming.`,
             )
           this.addIssue(error.message)
           this.decide(`Tree farmer waiting: ${error.message}`)
-          const delay = this.job ? 1500 : 10000
+          const delay = error.code === 'WAITING_FOR_SAPLINGS' ? 10000 : this.job ? 1500 : 10000
           this.plan.waitingUntil = Date.now() + delay
           this.agent.publish()
           try { await this.pause(delay) } catch (waitError) {

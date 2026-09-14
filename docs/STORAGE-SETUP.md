@@ -152,3 +152,17 @@ Sam continues to manufacture the shared iron-tool buffer independently of chat. 
 which requested tools are currently stocked and where to get them. Chat messages do not
 execute arbitrary commands, and only the controller's connected fleet peers can participate
 in the automatic exchange. LLM conversations include the saved memory but cannot change it.
+
+Building supplies: normal surplus storage retains 128 per supported building material.
+At fewer than eight usable blocks, active work checks storage first and aims to refill to 128,
+then gathers any shortfall. Jerry's dirt-column work specifically refills dirt. An unavailable
+database does not count as empty storage; unsafe or exhausted gathering reports a blocker.
+
+Sam now expands central storage automatically when a category has fewer than four empty
+slots across its central chests. He adds at most one separate chest per maintenance pass,
+inside the existing eight-block hub area, then labels it. Named coordination publishes the
+new location. `expand storage` runs one inspection/expansion pass explicitly. Shared chests
+and crafting ingredients are tried first; a bounded nearby wood search supplies missing
+chest materials when accessible. Missing materials or clear placement space is reported.
+Undeposited carried tools count toward the tool buffer, preventing repeated crafting while
+storage is full. Empty remote chests do not count as capacity at the central hub.

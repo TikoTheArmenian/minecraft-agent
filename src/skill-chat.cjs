@@ -8,7 +8,9 @@ function parseControl(text) {
   if (/^(skills|list skills|help)$/.test(s)) return { type: 'skillHelp' }
   const name = s.replace(/^(?:switch (?:my |your )?skill to|switch to|change (?:my |your )?skill to|start|run|enable|turn on) /, '')
   const skill = skills.find(skill => [skill.type.toLowerCase(), skill.label.toLowerCase(), ...skill.aliases].includes(name))
-  return skill ? { type: 'controlSkill', skill: skill.type } : null
+  if (skill) return { type: 'controlSkill', skill: skill.type }
+  const exchange = require('./exchange.cjs').parseExchange(name)
+  return exchange ? { type: 'controlSkill', skill: 'exchange', command: exchange } : null
 }
 function addressed(message, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -20,11 +22,13 @@ function receiveControl(agent, bot, username, message, whisper = false) {
       !/^[a-zA-Z0-9_]{1,16}$/.test(username) || username === agent.username ||
       Object.values(agent.fleet || {}).some(a => a.username === username)) return false
   const text = addressed(message, agent.username) ?? (whisper ? message : null)
-  if (text === null || !parseControl(text)) return false
+  if (text === null) return false
   let reply
   try {
+    const control = parseControl(text)
+    if (!control) return false
     agent.log('chat.command', `${username}: ${text}`)
-    reply = agent.controlSkill(parseControl(text))
+    reply = agent.controlSkill(control)
   } catch (error) { reply = error.message }
   try {
     const clean = String(reply).replace(/[\x00-\x1f\x7f§]/g, ' ').slice(0, 230)

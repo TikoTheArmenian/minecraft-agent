@@ -119,18 +119,31 @@ class ColonyChat {
     } catch(error){a.log('colony.chat.error',error.message,'warn')} finally{this.busy=false}
   }
   async returnSupplies(w) {
-    await require('./building-supplies.cjs').ensure(w)
     const memory=this.recall(), policy=memory.storage
-    if(!policy || !this.agent.colony.enabled || this.agent.username==='Sam')return
-    if(Date.now()-(memory.lastReturnAt||0)<policy.returnEveryMs && w.bot.inventory.emptySlotCount()>=4)return
-    // Run only at skill checkpoints; never interrupt a chest click or a tree climb.
-    w.check()
-    const storage=require('./storage.cjs')
-    w.progress('Returning surplus to the shared storage Sam told me about.')
-    await storage.store(w)
-    for(const name of NEEDS[memory.role]||[])
-      if(!hasTool(w.bot.inventory.items(),name))await storage.retrieve(w,[name],1)
-    memory.lastReturnAt=Date.now();this.save()
+    if (Date.now() < (memory.nextSupplyAttemptAt || 0)) return
+    try {
+      await require('./building-supplies.cjs').ensure(w)
+      if(!policy || !this.agent.colony.enabled || this.agent.username==='Sam')return
+      if(Date.now()-(memory.lastReturnAt||0)<policy.returnEveryMs && w.bot.inventory.emptySlotCount()>=4)return
+      // Run only at skill checkpoints; never interrupt a chest click or a tree climb.
+      w.check()
+      const storage=require('./storage.cjs')
+      w.progress('Returning surplus to the shared storage Sam told me about.')
+      await storage.store(w)
+      for(const name of NEEDS[memory.role]||[])
+        if(!hasTool(w.bot.inventory.items(),name))await storage.retrieve(w,[name],1)
+      memory.lastReturnAt=Date.now()
+      memory.nextSupplyAttemptAt=0
+      this.save()
+    } catch(error) {
+      // Storage is a side trip, not evidence that the current tree is unreachable.
+      // Stop, safety failures, and air recovery must still reach the skill runner.
+      w.check()
+      if(error.fatal || ['CANCELLED','AIR_RECOVERY'].includes(error.code))throw error
+      memory.nextSupplyAttemptAt=Date.now()+60000
+      this.save()
+      w.addIssue(`Supply trip deferred for one minute; continuing farm work. ${error.message}`)
+    }
   }
 }
-module.exports={ColonyChat,ROLES,NEEDS,hasTool}
+module.exports={ColonyChat,ROLES,NEEDS,SUPPLIES,hasTool}

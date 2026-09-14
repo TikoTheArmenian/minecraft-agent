@@ -9,7 +9,14 @@ async function ensure(w, { names = BUILDING_BLOCKS, threshold = 8 } = {}) {
     w.check()
     w.progress(`Restocking building blocks to ${TARGET}; checking storage first.`)
     if (w.agent.colony?.enabled) await require('./storage.cjs').retrieve(w,names,TARGET)
-    else await require('./farm-storage.cjs').restock(w,names,TARGET,threshold,'building blocks')
+    else {
+      const local=Object.create(w)
+      local.plan=w.plan || {}
+      local.count=name=>count(w,[name])
+      local.find=(types,radius)=>w.bot.findBlocks({matching:types.map(n=>w.bot.registry.blocksByName[n].id),maxDistance:radius,count:32}).map(p=>w.bot.blockAt(p)).filter(Boolean)
+      local.attempt=async(label,fn)=>fn()
+      await require('./farm-storage.cjs').restock(local,names,TARGET,threshold,'building blocks')
+    }
     if (count(w,names) >= TARGET) return
     w.progress(`Gathering the remaining building blocks: ${count(w,names)}/${TARGET}.`)
     if (typeof w.gather === 'function') {
