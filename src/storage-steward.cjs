@@ -46,6 +46,21 @@ function signText(block) {
   if (messages) return messages.map(s=>{try {const t=JSON.parse(s); return typeof t==='string'?t:t.text||''}catch{return s}}).join('\n').trim()
   return Array.isArray(block?.signText) ? block.signText.join('\n').trim() : block?.signText?.trim?.() || ''
 }
+async function ensureSign(w) {
+  const names=Object.keys(w.bot.registry.itemsByName).filter(n=>/^(oak|birch|spruce|jungle|acacia|dark_oak|cherry|mangrove)_sign$/.test(n))
+  if(w.bot.inventory.items().some(i=>names.includes(i.name)&&plain(i)))return
+  await storage.retrieve(w,names,1)
+  if(w.bot.inventory.items().some(i=>names.includes(i.name)&&plain(i)))return
+  const stock=crafting.stocks(w,await storage.list(w))
+  for(const name of names) {
+    try {crafting.planRecipes(w.bot,name,1,stock.carry,stock.shared)}catch{continue}
+    const job=randomUUID()
+    await storage.call(w,'enqueue',{job,item:name,quantity:1})
+    const claimed=await storage.call(w,'claim_job',{job})
+    if(claimed)await crafting.execute(w,claimed,{storeOutput:false})
+    return
+  }
+}
 async function label(w, hub) {
   const { containers } = await storage.list(w)
   for (const chest of containers.filter(c=>c.managed && c.capacity===54 && atHub(c,hub))) {
@@ -59,6 +74,7 @@ async function label(w, hub) {
     faces.sort((a,b)=>p.plus(a).distanceTo(w.bot.entity.position)-p.plus(b).distanceTo(w.bot.entity.position))
     const face = faces.find(f=>['air','cave_air'].includes(w.bot.blockAt(p.plus(f))?.name) || w.bot.blockAt(p.plus(f))?.name.endsWith('_wall_sign'))
     const placedSign=face && w.bot.blockAt(p.plus(face))?.name.endsWith('_wall_sign')
+    if(!placedSign)await ensureSign(w)
     const item = w.bot.inventory.items().find(i=>/_sign$/.test(i.name) && !i.name.includes('hanging') && plain(i))
     if (!face || (!item && !placedSign)) {w.progress(`Need a sign and a clear chest face to label ${chest.id}.`);continue}
     const target=p.plus(face)
@@ -98,12 +114,14 @@ async function expand(w,hub,requestedCategory=null) {
   const data=await storage.list(w), cat=requestedCategory||expansionCategory(data.containers,hub)
   if(!cat)return false
   w.progress(`Expanding central ${cat} storage.`)
+  const pending=require('./warehouse-layout.cjs').pendingPositions(w)
+  const required=pending.length ? pending.filter(p=>w.bot.blockAt(vector(Object.fromEntries(['x','y','z'].map((n,i)=>[n,Number(p.split(',')[i])]))))?.name!=='chest').length : 2
   const chestCount=()=>w.bot.inventory.items().filter(i=>i.name==='chest'&&plain(i)).reduce((n,i)=>n+i.count,0)
-  const hasChest=()=>chestCount()>=2
-  if(!hasChest()) await storage.retrieve(w,['chest'],2)
+  const hasChest=()=>chestCount()>=required
+  if(!hasChest()) await storage.retrieve(w,['chest'],required)
   if(!hasChest()) {
     let stock=crafting.stocks(w,await storage.list(w))
-    try {crafting.planRecipes(w.bot,'chest',2-chestCount(),stock.carry,stock.shared)} catch {
+    try {crafting.planRecipes(w.bot,'chest',required-chestCount(),stock.carry,stock.shared)} catch {
       // A small material trip, not an unbounded tree-farming job.
       const logs=Object.keys(w.bot.registry.blocksByName).filter(n=>/^(oak|birch|spruce|jungle|acacia|dark_oak|cherry|mangrove)_log$/.test(n))
       await storage.retrieve(w,logs,4)
@@ -116,15 +134,20 @@ async function expand(w,hub,requestedCategory=null) {
           const natural=b=>!!b && logs.includes(b.name) && [[0,1,0],[0,2,0],[1,1,0],[-1,1,0],[0,1,1],[0,1,-1]].some(d=>/_leaves$/.test(w.bot.blockAt(b.position.offset(...d))?.name||''))
           let block=w.bot.blockAt(p)
           if(!natural(block))continue
-          await w.approach(p);block=w.bot.blockAt(p)
-          await w.dig(p,block.name,natural);await w.pickup(p)
+          try {
+            await w.approach(p);block=w.bot.blockAt(p)
+            await w.dig(p,block.name,natural)
+            await w.pause(750)
+            await w.pickup(p)
+            await w.pickup(w.bot.entity.position)
+          }catch(error){w.check();if(error.fatal)throw error;w.addIssue(`Chest wood: ${error.message}`)}
         }
       }
     }
     stock=crafting.stocks(w,await storage.list(w))
-    crafting.planRecipes(w.bot,'chest',2-chestCount(),stock.carry,stock.shared)
+    crafting.planRecipes(w.bot,'chest',required-chestCount(),stock.carry,stock.shared)
     const job=randomUUID()
-    await storage.call(w,'enqueue',{job,item:'chest',quantity:2-chestCount()})
+    await storage.call(w,'enqueue',{job,item:'chest',quantity:required-chestCount()})
     const claimed=await storage.call(w,'claim_job',{job})
     if(!claimed)throw new Error('Storage expansion chest job is already claimed.')
     await crafting.execute(w,claimed,{storeOutput:false})

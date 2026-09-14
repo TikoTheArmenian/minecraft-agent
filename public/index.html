@@ -11,6 +11,7 @@
     <script src="/world.js" defer></script>
     <script src="/activity.js" defer></script>
     <script src="/storage.js" defer></script>
+    <script src="/costs.js" defer></script>
 </head>
 
 <body>
@@ -22,6 +23,33 @@
             </div><button id="stop" class="stop">Emergency: stop all bots</button>
         </header>
         <section class="panel"><h2>Your bots</h2><p class="muted" id="fleet-size">Loading the bot list…</p><div id="bot-overview" class="bot-overview"></div></section>
+        <section class="panel cost-panel" aria-labelledby="cost-heading">
+            <div class="section-title"><h2 id="cost-heading">API costs</h2><span id="cost-updated" class="muted small">Loading cost history…</span></div>
+            <div class="cost-toolbar">
+                <label>Period<select id="cost-period"><option value="month">This month (UTC)</option><option value="today">Today (UTC)</option><option value="week">Last 7 days</option><option value="all">All tracked history</option><option value="custom">Custom dates</option></select></label>
+                <label>Agent<select id="cost-agent"><option value="">Whole project</option></select></label>
+                <label id="cost-from-label" hidden>From (UTC)<input id="cost-from" type="date"></label>
+                <label id="cost-to-label" hidden>Through (UTC)<input id="cost-to" type="date"></label>
+                <button id="cost-refresh" type="button" class="secondary">Refresh costs</button>
+                <a id="cost-export" href="/api/costs/export" download>Download CSV</a>
+            </div>
+            <p id="cost-error" role="status" hidden></p>
+            <div class="cost-cards">
+                <div><span id="cost-range-label">Selected period · estimated OpenAI cost</span><strong id="cost-total">—</strong><small id="cost-coverage">Waiting for recorded usage</small></div>
+                <div><span>Today · UTC</span><strong id="cost-today">—</strong><small id="cost-today-detail"></small></div>
+                <div><span>This month · UTC</span><strong id="cost-month">—</strong><small id="cost-month-detail"></small></div>
+            </div>
+            <p id="cost-alerts" role="status" hidden></p>
+            <p class="muted small">Estimates from reported OpenAI tokens, including cache reads, cache writes and reasoning. Supabase requests are counted; database hosting and other services are billed separately. Earlier untracked usage and Codex development costs are not included.</p>
+            <details class="cost-details"><summary>Per-agent breakdown, history and budget alerts</summary>
+                <div class="cost-table-wrap" tabindex="0"><table class="cost-table"><caption>Agents in the selected period</caption><thead><tr><th>Agent</th><th>Estimated USD</th><th>OpenAI calls</th><th>Supabase calls</th><th>Input / output tokens</th><th>Unknown costs</th><th>Errors / pending</th></tr></thead><tbody id="cost-agent-rows"></tbody></table></div>
+                <div class="cost-breakdowns"><div class="cost-table-wrap" tabindex="0"><table class="cost-table"><caption>By model / service</caption><thead><tr><th>Model / service</th><th>Calls</th><th>Estimated USD</th></tr></thead><tbody id="cost-model-rows"></tbody></table></div><div class="cost-table-wrap cost-trend" tabindex="0"><table class="cost-table"><caption>Daily OpenAI estimates · last 90 days of the selected period</caption><thead><tr><th>UTC day</th><th>Cost</th><th>USD</th></tr></thead><tbody id="cost-day-rows"></tbody></table></div></div>
+                <p id="cost-pricing" class="muted small"></p>
+                <form id="cost-budget-form" class="cost-toolbar"><label>Budget alerts for<select id="cost-budget-scope"><option value="project">Whole project</option></select></label><label>Daily USD<input id="cost-budget-day" type="number" min="0.000001" max="1000000" step="any" placeholder="No alert"></label><label>Monthly USD<input id="cost-budget-month" type="number" min="0.000001" max="1000000" step="any" placeholder="No alert"></label><button>Save alerts</button></form>
+                <p class="muted small">Alerts appear at 80% and 100% of your budget. They do not stop bots or cap provider billing. Blank disables that alert.</p><p id="cost-budget-status" role="status"></p>
+                <div class="cost-table-wrap" tabindex="0"><table class="cost-table"><caption>Most recent 50 API requests · full history is available in CSV</caption><thead><tr><th>Time</th><th>Agent</th><th>Service / operation</th><th>Model / tier</th><th>Outcome</th><th>Estimated USD</th><th>Accounting</th></tr></thead><tbody id="cost-request-rows"></tbody></table></div>
+            </details>
+        </section>
         <section class="bot-control-bar" aria-label="Selected bot controls">
             <nav class="bot-tabs" aria-label="Choose bot"></nav>
             <div class="bot-control-title"><div><h2>Controlling <span id="selected-bot">Marc</span></h2><p id="control-scope">Every control below applies only to Marc.</p></div><button id="start-selected" type="button">Start Marc wheat farming</button><button id="stop-selected" class="stop" type="button">Stop Marc</button></div>

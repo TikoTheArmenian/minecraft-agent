@@ -33,6 +33,11 @@ function free(bot,bay) {
   // The fixed front label and walking strip must remain clear; never excavate a farm or structure.
   for(const p of [bay.left,bay.right])for(const z of [1,2])for(const y of [0,1])
     if(!['air','cave_air'].includes(bot.blockAt(p.offset(0,y,z))?.name))return false
+  for(const p of [bay.left,bay.right])for(const dz of [0,1,2]) {
+    const floor=bot.blockAt(p.offset(0,-1,dz))
+    if(!floor || /chest|farmland|furnace|leaves|magma|cactus/.test(floor.name))return false
+    if(floor.boundingBox!=='block'&&!['air','cave_air'].includes(floor.name))return false
+  }
   return true
 }
 async function placeConfirmed(w,p,name,reference,face) {
@@ -44,35 +49,48 @@ async function placeConfirmed(w,p,name,reference,face) {
   const watcher=watchBlock(w.bot,p,id=>id>=range.minStateId&&id<=range.maxStateId,w.controller.signal)
   try {await w.timed(async()=>{await w.bot.placeBlock(reference,face);await watcher.promise;w.check()},7000,`Place warehouse ${name}`)}finally{watcher.cleanup()}
 }
-async function floor(w,bay) {
-  const pending=[]
-  for(const p of [bay.left,bay.right])for(const dz of [0,1,2])pending.push(p.offset(0,-1,dz))
+async function floor(w,bay,hub) {
   const safe=b=>b?.boundingBox==='block'&&!/chest|farmland|furnace|leaves|magma|cactus/.test(b.name)
-  for(let pass=0;pass<6;pass++) {
-    let progress=false
-    for(let i=pending.length-1;i>=0;i--) {
-      const p=pending[i],b=w.bot.blockAt(p)
-      if(safe(b)){pending.splice(i,1);continue}
-      if(!['air','cave_air'].includes(b?.name))throw new Error('Warehouse floor would overwrite terrain or a container. Clear or relocate the hub.')
-      // Keep old chest lids and crops clear even when their cell is below the platform.
-      if(/chest|farmland/.test(w.bot.blockAt(p.offset(0,-1,0))?.name||''))throw new Error('Warehouse floor would obstruct existing storage or farmland.')
-      for(const d of [[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]) {
-        const reference=w.bot.blockAt(p.offset(...d))
-        if(!safe(reference))continue
-        await storage.approach(w,reference.position)
-        const name=['cobblestone','stone','dirt'].find(n=>w.bot.inventory.items().some(i=>i.name===n&&plain(i)))
-        if(!name)throw new Error('Warehouse needs solid blocks for its level floor and aisle.')
-        await placeConfirmed(w,p,name,reference,new Vec3(-d[0],-d[1],-d[2]))
-        pending.splice(i,1);progress=true;break
+  const required=[]
+  for(const p of [bay.left,bay.right])for(const dz of [0,1,2])required.push(p.offset(0,-1,dz))
+  const eligible=p=>{
+    const b=w.bot.blockAt(p)
+    if(safe(b))return true
+    return ['air','cave_air'].includes(b?.name) &&
+      ['air','cave_air'].includes(w.bot.blockAt(p.offset(0,1,0))?.name) &&
+      ['air','cave_air'].includes(w.bot.blockAt(p.offset(0,2,0))?.name) &&
+      !/chest|farmland/.test(w.bot.blockAt(p.offset(0,-1,0))?.name||'')
+  }
+  for(const target of required) {
+    if(safe(w.bot.blockAt(target)))continue
+    // Find a bounded, level connection back to existing solid support. No floating placements.
+    const queue=[{p:target,path:[target]}], seen=new Set([key(target)])
+    let route=null
+    for(let i=0;i<queue.length&&i<225;i++) {
+      const node=queue[i]
+      if(!eligible(node.p))continue
+      if(safe(w.bot.blockAt(node.p))){route=node.path.reverse();break}
+      for(const d of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]) {
+        const p=node.p.offset(...d)
+        if(Math.abs(p.x-hub.x)>7||Math.abs(p.z-hub.z)>7||seen.has(key(p)))continue
+        seen.add(key(p));queue.push({p,path:[...node.path,p]})
       }
     }
-    if(!pending.length)return
-    if(!progress)break
+    if(!route)throw new Error('Warehouse floor has no clear supported connection. Clear or relocate the hub.')
+    for(let i=1;i<route.length;i++) {
+      const p=route[i],ref=route[i-1]
+      w.check()
+      if(!eligible(p))throw new Error('Warehouse floor changed while building its access strip.')
+      await storage.approach(w,ref)
+      const name=['cobblestone','stone','dirt'].find(n=>w.bot.inventory.items().some(i=>i.name===n&&plain(i)))
+      if(!name)throw new Error('Warehouse floor needs more solid building blocks.')
+      await placeConfirmed(w,p,name,w.bot.blockAt(ref),p.minus(ref))
+    }
   }
-  throw new Error('Warehouse floor has no reachable support; choose a level supported storage area.')
 }
 async function build(w,hub,category) {
   const state=memory(w,hub), all=bays(hub)
+  if(state.pending){const old=all.find(b=>b.id===state.pending.id);if(old && [old.left,old.right].every(p=>['air','cave_air'].includes(w.bot.blockAt(p)?.name))&&!free(w.bot,old)){state.pending=null;w.agent.coordination.save()}}
   let bay=state.pending ? all.find(b=>b.id===state.pending.id) : all.find(b=>!state.completed[b.id]&&free(w.bot,b))
   if(!bay)throw new Error('No clear warehouse bay remains in the hub. The planned rows need a larger clear site.')
   const data=await storage.list(w)
@@ -80,7 +98,7 @@ async function build(w,hub,category) {
   if(overlaps.length && !overlaps.every(c=>c.capacity===54&&c.id===`${key(bay.left)}|${key(bay.right)}`))throw new Error('A registered chest overlaps this warehouse bay; do not join it until its inventories are reconciled.')
   if(!state.pending){state.pending={id:bay.id,category};w.agent.coordination.save()}
   category=state.pending.category
-  await floor(w,bay)
+  await floor(w,bay,hub)
   for(const p of [bay.left,bay.right]) {
     const existing=w.bot.blockAt(p)
     if(existing?.name==='chest') {
@@ -94,7 +112,9 @@ async function build(w,hub,category) {
     await placeConfirmed(w,p,'chest',w.bot.blockAt(p.offset(0,-1,0)),new Vec3(0,1,0))
     if(w.bot.blockAt(p)?.getProperties().facing!=='south')throw new Error('Server did not confirm the planned chest facing.')
   }
-  if(!validPair(w.bot,bay))throw new Error('Server did not confirm a joined south-facing double chest.')
+  await w.timed(async()=>{
+    while(!validPair(w.bot,bay)){w.check();await w.pause(50)}
+  },3000,'Confirm both double-chest halves')
   await storage.manage(w,bay.left,category)
   state.completed[bay.id]={category};state.pending=null;w.agent.coordination.save()
   return bay

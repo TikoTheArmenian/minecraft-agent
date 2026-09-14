@@ -256,3 +256,10 @@ Labels belong on the same front face/half at the same height, not whichever side
 Use `test/warehouse-layout.test.cjs` for aligned geometry, double verification, registered-half
 rejection and armor planning. Sam's armor buffer follows successful tool replenishment and
 counts carried outputs; the current supported armor is iron, with at most four shared sets.
+
+For joined chests, wait for both block updates: the destination placement acknowledgement
+can precede the partner's change from single to double. Keep the construction record pending
+until canonical identity and the 54-slot window are confirmed. Prefer an available crafting
+table even for intermediate planks so the installed crafting implementation synchronizes its
+window before verification. Retrieve/craft labels if supplied signs run out, and keep them
+on the planned front face. Test delayed partner updates and resuming a one-half build.

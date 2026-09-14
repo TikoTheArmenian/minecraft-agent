@@ -82,7 +82,7 @@ function chooseTool(bot, block, accepts = () => true) {
     return creative || block.canHarvest(item?.type ?? null)
   })
   if (!options.length)
-    throw new Error(`Need a suitable tool to harvest ${block.name}. Give Marc a tool.`)
+    throw new Error(`Need a suitable tool to harvest ${block.name}. Give ${bot.username || 'the bot'} a tool.`)
   const target = comparisonBlock(bot, block)
   // Compare normal mining speeds even in Creative: its instant-dig times would
   // otherwise tie every item with empty hands. Enchantments remain part of speed.
@@ -428,7 +428,7 @@ class Work {
         if (!collected && this.bot.entities[entity.id]) {
           this.pickupCooldowns.set(entity.id, Date.now() + 60000)
           this.addIssue(
-            'Some dropped items were not confirmed in Marc’s inventory; retrying after a one-minute cooldown.',
+            `Some dropped items were not confirmed in ${this.agent.username}’s inventory; retrying after a one-minute cooldown.`,
           )
         }
       } catch (error) {
@@ -602,14 +602,14 @@ class Work {
           // Reserve planting material before harvesting, even if the harvest might drop seeds.
           if (!this.seed(crop))
             throw new Error(
-              `Give Marc ${crop.seed}; mature crops are left intact without replanting stock.`,
+              `Give ${this.agent.username} ${crop.seed}; mature crops are left intact without replanting stock.`,
             )
           if (this.bot.inventory.emptySlotCount() === 0 && this.bot.game.gameMode !== 'creative')
             throw new Error('Inventory is full; make room for the harvest.')
           await this.approach(soil)
           block = this.bot.blockAt(soil.offset(0, 1, 0))
           if (!this.seed(crop))
-            throw new Error(`Planting stock disappeared before harvest; give Marc ${crop.seed}.`)
+            throw new Error(`Planting stock disappeared before harvest; give ${this.agent.username} ${crop.seed}.`)
           if (this.bot.blockAt(soil)?.name !== 'farmland')
             throw new Error('Farmland changed before harvest.')
           if (mature(block, crop)) {

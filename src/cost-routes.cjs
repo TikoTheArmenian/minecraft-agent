@@ -1,4 +1,3 @@
-const { once } = require('node:events')
 const { costsFor } = require('./api-costs.cjs')
 function queryFilter(query, fixedAgent = null) {
   const allowed = new Set(['from', 'to', 'agent'])
@@ -52,7 +51,10 @@ function installCostRoutes(app, agent, fleet) {
       for (const row of costs.exportRows(selection)) {
         if (res.destroyed) break
         if (!res.write(columns.map(c => cell(row[c])).join(',') + '\r\n'))
-          await Promise.race([once(res, 'drain'), once(res, 'close')])
+          await new Promise(resolve => {
+            const done = () => { res.off('drain', done); res.off('close', done); res.off('error', done); resolve() }
+            res.once('drain', done); res.once('close', done); res.once('error', done)
+          })
         if (++count % 250 === 0) await new Promise(setImmediate)
       }
       res.end()

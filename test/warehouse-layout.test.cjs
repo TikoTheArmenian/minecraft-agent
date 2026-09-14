@@ -17,3 +17,18 @@ test('registers only a confirmed joined double chest and does not rebuild comple
 test('partial pair retains its pending cells and refuses to join a registered single',async t=>{const f=fixture(t),bay=layout.bays(hub)[0];f.w.agent.coordination.recall().warehouse={'0,64,0':{pending:{id:bay.id,category:'food'},completed:{}}};t.mock.method(storage,'list',async()=>({containers:[{capacity:27,blocks:[bay.left],id:bay.id}]}));await assert.rejects(layout.build(f.w,hub,'food'),/registered chest overlaps/);assert.equal(f.placements(),0);assert.equal(layout.pendingPositions(f.w).length,2)})
 test('armor recipes are supported and use the actual iron requirement',()=>{const Recipe=require('prismarine-recipe')(registry).Recipe;const bot={registry,recipesAll:id=>Recipe.find(id,null)};assert(crafting.allowed('iron_chestplate'));assert.throws(()=>crafting.planRecipes(bot,'iron_chestplate',1,{iron_ingot:7},{}),/Missing materials/);assert.equal(crafting.planRecipes(bot,'iron_chestplate',1,{iron_ingot:8},{}).steps.at(-1).name,'iron_chestplate')})
 test('armor does not spend material while any shared tool target is missing',async t=>{const steward=require('../src/storage-steward.cjs');t.mock.method(storage,'list',async()=>({containers:[]}));t.mock.method(crafting,'execute',()=>assert.fail('armor must wait'));await steward.armor({bot:{inventory:{items:()=>[]}},progress(){}},hub)})
+test('a partial pair resumes its second half without placing the first chest again',async t=>{
+ const f=fixture(t),place=f.w.bot.placeBlock
+ let calls=0
+ f.w.bot.placeBlock=async(...args)=>{if(++calls===2)throw new Error('interrupted before second placement');return place(...args)}
+ await assert.rejects(layout.build(f.w,hub,'food'),/interrupted/)
+ assert.equal(layout.pendingPositions(f.w).length,2)
+ const bay=await layout.build(f.w,hub,'food')
+ assert(layout.validPair(f.w.bot,bay));assert.equal(f.placements(),2)
+})
+test('verification waits for the partner chest block update',async t=>{
+ const f=fixture(t),place=f.w.bot.placeBlock
+ f.w.pause=()=>new Promise(r=>setTimeout(r,2))
+ f.w.bot.placeBlock=async(...args)=>{await place(...args);if(f.placements()===2){const b=f.w.bot.blockAt(layout.bays(hub)[0].left),correct=b.getProperties;b.getProperties=()=>({facing:'south',type:'single'});setTimeout(()=>{b.getProperties=correct},5)}}
+ const bay=await layout.build(f.w,hub,'food');assert(layout.validPair(f.w.bot,bay))
+})

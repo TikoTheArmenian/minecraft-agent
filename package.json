@@ -12,7 +12,7 @@
     "textures": "node scripts/extract-textures.cjs"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "express": "5.2.1",

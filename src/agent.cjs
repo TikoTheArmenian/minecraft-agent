@@ -313,7 +313,7 @@ class Agent extends EventEmitter {
       bot.on('kicked', (reason) => {
         if (current())
           this.say(
-            `Server disconnected Marc: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`,
+            `Server disconnected ${this.username}: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`,
           )
       })
       bot.on('death', () => {
@@ -406,7 +406,7 @@ class Agent extends EventEmitter {
     this.clearScene()
     this.state.connection = 'disconnected'
     closeBot(bot)
-    if (wasConnected) this.log('connection.end', 'Marc disconnected.')
+    if (wasConnected) this.log('connection.end', `${this.username} disconnected.`)
     else this.publish()
   }
   navigate(target) {

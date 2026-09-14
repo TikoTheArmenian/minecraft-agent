@@ -5,7 +5,7 @@ const { describe, plain, reserve } = require('./storage-policy.cjs')
 const storage = require('./storage.cjs')
 const { watchBlock } = require('./block-updates.cjs')
 const allowed = (name) =>
-  /^(?:(?:oak|birch|spruce|jungle|acacia|dark_oak|cherry|mangrove)_planks|stick|chest|crafting_table|furnace|bread|torch|iron_(?:helmet|chestplate|leggings|boots)|(?:wooden|stone|iron)_(?:pickaxe|axe|shovel|hoe|sword))$/.test(
+  /^(?:(?:oak|birch|spruce|jungle|acacia|dark_oak|cherry|mangrove)_(?:planks|sign)|stick|chest|crafting_table|furnace|bread|torch|iron_(?:helmet|chestplate|leggings|boots)|(?:wooden|stone|iron)_(?:pickaxe|axe|shovel|hoe|sword))$/.test(
     name,
   )
 function planRecipes(bot, item, quantity, carry, shared, needTable = false) {
@@ -251,7 +251,7 @@ async function execute(w, job, { storeOutput = true } = {}) {
     }
     let produced = 0
     for (const step of plan.steps) {
-      if (step.recipe.requiresTable) {
+      if (step.recipe.requiresTable || table) {
         table ||= await place(w, 'crafting_table')
         await w.approach(table.position)
         if (w.bot.blockAt(table.position)?.name !== 'crafting_table')
@@ -309,7 +309,7 @@ async function execute(w, job, { storeOutput = true } = {}) {
             w.bot.craft(
               step.recipe,
               1,
-              step.recipe.requiresTable ? table : null,
+              table || null,
             ),
           20000,
           `Craft ${step.name}`,

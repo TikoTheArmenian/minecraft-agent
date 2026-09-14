@@ -52,9 +52,9 @@ class ApiCosts {
       this.db.prepare("INSERT OR IGNORE INTO metadata VALUES ('started_at',?)").run(String(now()))
     } catch (error) { this.fault(error) }
   }
-  fault(error) {
+  fault(error, missedWrite = false) {
     this.error = `Cost tracking has a storage error (${word(error.code) || 'unavailable'}). Totals may be incomplete; game actions continue.`
-    this.missed++
+    if (missedWrite) this.missed++
   }
   begin({ agent = 'project', provider, operation, model = null }) {
     const id = randomUUID()
@@ -62,7 +62,7 @@ class ApiCosts {
       this.db.prepare('INSERT INTO requests (id,started_at,agent,provider,operation,requested_model) VALUES (?,?,?,?,?,?)')
         .run(id, this.now(), word(agent) || 'project', word(provider) || 'unknown', word(operation) || 'request', word(model))
       return id
-    } catch (error) { this.fault(error); return null }
+    } catch (error) { this.fault(error, true); return null }
   }
   finish(id, { outcome = 'completed', httpStatus = null, result = null, requestId = null } = {}) {
     if (!id) return
@@ -82,7 +82,7 @@ class ApiCosts {
           model, tier, responseId, word(requestId), duplicate?.id || null,
           usage?.input ?? null, usage?.cached ?? null, usage?.cacheWrite ?? null, usage?.output ?? null, usage?.reasoning ?? null,
           duplicate ? 0 : price.costNano, duplicate ? 'duplicate' : price.pricingStatus, price.price ? JSON.stringify(price.price) : null, id)
-    } catch (error) { this.fault(error) }
+    } catch (error) { this.fault(error, true) }
   }
   filter({ from = null, to = null, agent = null } = {}) {
     const params = [], clauses = []

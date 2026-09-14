@@ -38,10 +38,14 @@ Sam's role table lists `iron_shovel` + `iron_pickaxe` and 128 dirt as her suppli
    otherwise. Blocks beside liquid above the target are left alone so the rectangle is not flooded.
    Each layer boundary is a checkpoint for `coordination.returnSupplies` (the shared five-minute
    surplus/tool policy).
-5. **Fill.** Outer ring first so each block has a support face (the block below, otherwise a solid
-   side neighbour), placed bottom-up per column with `watchBlock` confirmation. Dirt goes on the
-   surface, stone types into hidden supports. Every placement re-checks support, reach, held item
-   and that no entity occupies the cell.
+5. **Fill.** Outer ring first so each block has a support face, placed bottom-up per column with
+   `watchBlock` confirmation. Reference faces are tried in order (block below, then the nearest
+   solid side walls) with `FillStanceGoal`, which raycasts to the *face* rather than the block
+   centre: a pit wall's centre is hidden under the surrounding surface while its face is in view.
+   When Terra has dropped into the pit she is filling, she jump-places the block under her own
+   feet (`jumpFill`, the tree farmer's climbing pattern) instead of searching for an outside stance.
+   Dirt goes on the surface, stone types into hidden supports. Every placement re-checks support,
+   reach, held item and that no entity occupies the cell.
 6. **Store and finish.** With the colony enabled and the hub within 80 blocks of the start,
    surplus above the reserves (`dirt 128, cobblestone 64, cobbled_deepslate 64, stone 64`, plus the
    outstanding fill demand while filling) is deposited when fewer than four inventory slots are free
@@ -74,7 +78,9 @@ carriedFill, skipped, skippedCount, deficit, storage, waitingUntil}`; `task.skil
 ## Limitations
 
 - Steep hills (two-block walls) may be unreachable without stairs; unreachable blocks are
-  reported and retried on later passes, then the job pauses.
+  reported and retried on later passes, then the job pauses. Tree canopies inside the rectangle
+  need a second pass: the top leaves are hidden until the lower ones are cut (seen live).
+- A 1×1 pit deeper than the bot can see into from its edge is only filled after dropping in.
 - Liquids above the target level are not drained or dammed; those columns are skipped.
 - Gravel/sand falling into the rectangle during cuts is handled by the next pass, not predicted.
 - Map-selection ("flatten the selected area on the map") needs a `world.cjs`/UI change and is not

@@ -196,3 +196,11 @@ leggings and boots. He builds one of each missing piece per pass, up to four sha
 using actual available iron and storage capacity. Carried outputs count toward the target.
 Insufficient iron is not fabricated or automatically smelted. Armor crafting does not
 interrupt missing-tool replenishment, and supplying armor does not automatically equip peers.
+
+Live verification also exposed two timing details: a double chest's partner block update can
+arrive after the placed half, so registration waits for both; crafting now uses an available
+crafting table for intermediate planks as well as table-required recipes. If supplied signs
+run out, Sam retrieves or crafts ordinary wood signs and verifies their front text. Bays whose
+floor would cover an old chest are rejected before placement. A zero-chest pending bay that
+became obstructed can be replaced by another free planned bay; actual partial pairs remain
+reserved for recovery.
