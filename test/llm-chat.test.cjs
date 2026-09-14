@@ -45,6 +45,6 @@ test('new bots get messaging automatically from the shared environment', async t
  assert.equal(f.agent.state.llm.enabled,true)
  await chat.receive(f.bot,'Player','Marc hello')
  assert.equal(headers.Authorization,'Bearer shared-secret')
- assert.equal(body.model,f.agent.state.llm.model)
+ assert.equal(body.model,'gpt-5.6-luna');assert.equal(body.model,f.agent.state.llm.model)
  assert.equal(JSON.stringify(f.agent.state).includes('shared-secret'),false)
 })

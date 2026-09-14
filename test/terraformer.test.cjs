@@ -25,6 +25,7 @@ function setup(t, { colony = false } = {}) {
     h.bot._client.emit('block_change', { location: p, type: b.stateId })
   }
   h.add('iron_pickaxe'); h.add('iron_shovel')
+  h.bot.setControlState = () => {}
   const make = () => {
     const work = new Terraformer(h.agent, 1)
     work.pause = async () => work.check()
@@ -280,15 +281,48 @@ test('fill references prefer same-level pit walls over a support face beyond sta
   h.bot.entity.position = new Vec3(1.5, 67, 0.5)
   const work = h.make()
   const supports = work.supportsFor(new Vec3(0, 65, 0))
-  assert.deepEqual(supports.at(-1), { ref: new Vec3(0, 64, 0), face: new Vec3(0, 1, 0) }, 'the block below is the last resort')
+  assert.deepEqual(supports[0], { ref: new Vec3(0, 64, 0), face: new Vec3(0, 1, 0) }, 'the block below is tried first')
   assert.equal(supports.length, 5)
-  assert.ok(supports.slice(0, 4).every((s) => s.ref.y === 65), 'pit walls first')
-  assert.deepEqual(supports[0].ref, new Vec3(1, 65, 0), 'nearest wall first')
+  assert.ok(supports.slice(1).every((s) => s.ref.y === 65), 'then the pit walls')
+  assert.deepEqual(supports[1].ref, new Vec3(1, 65, 0), 'nearest wall first')
+  // Real raycast geometry: from the plateau edge the wall's centre is hidden but its face is not.
+  h.bot.world = { getBlock: (p) => h.bot.blockAt(p), raycast: require('prismarine-world/src/worldsync').prototype.raycast }
+  const { visible } = require('../src/block-approach.cjs')
+  const eye = new Vec3(-0.5, 68.62, 0.5)
+  assert.equal(visible(h.bot, new Vec3(1, 65, 0), eye, 3.75), false, 'block-centre view is occluded by the plateau')
+  const { FillStanceGoal } = require('../src/terraformer.cjs')
+  assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(1, 65, 0), new Vec3(-1, 0, 0)).isEnd(new Vec3(-1, 67, 0)), true, 'the wall face is visible from the far edge')
+  assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(0, 64, 0), new Vec3(0, 1, 0)).isEnd(new Vec3(-1, 67, 0)), false, 'the edge block clips the view of the floor face, so the wall face is used')
+  assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(0, 64, 0), new Vec3(0, 1, 0)).isEnd(new Vec3(-2, 67, 0)), false, 'two blocks back the floor face is out of reach')
+  assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(0, 64, 0), new Vec3(0, 1, 0)).isEnd(new Vec3(0, 67, 0)), false, 'never stand in the destination column')
+  delete h.bot.world
   let stances = 0
   work.standNear = async (ref, dest) => { stances++; if (ref.y < dest.y) throw Object.assign(new Error('No route'), { code: 'NO_ROUTE' }) }
   h.add('dirt', 4)
   await work.run({ type: 'terraformer', min: { x: -3, z: -3 }, max: { x: 3, z: 3 }, y: 66 })
   assert.equal(work.task.status, 'succeeded', work.plan.decision)
   assert.equal(h.bot.blockAt(new Vec3(0, 65, 0)).name, 'dirt'); assert.equal(h.bot.blockAt(new Vec3(0, 66, 0)).name, 'dirt')
-  assert.equal(stances, 2, 'a same-level wall stance succeeds without trying the deep support')
+  assert.equal(stances, 4, 'each cell falls back from the unreachable support below to a same-level wall')
+})
+
+test('standing inside a pit fills under the feet by jumping instead of searching for an outside stance', async (t) => {
+  const h = setup(t)
+  for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) for (let y = 64; y <= 66; y++) h.set('dirt', new Vec3(x, y, z))
+  for (let y = 65; y <= 66; y++) h.set('air', new Vec3(0, y, 0)) // Terra dropped into this 2-deep pit
+  h.bot.entity.position = new Vec3(0.5, 65, 0.5); h.bot.entity.onGround = true
+  const work = h.make()
+  work.standNear = async () => assert.fail('no outside stance exists for the cell the bot occupies')
+  const jumps = []
+  work.motionUntil = async (predicate, label) => {
+    // Simulated physics: the jump lifts the bot clear of the cell, landing settles on the new block.
+    if (/Jump/.test(label)) h.bot.entity.position = h.bot.entity.position.offset(0, 1.05, 0)
+    else h.bot.entity.position = new Vec3(0.5, Math.floor(h.bot.entity.position.y), 0.5)
+    jumps.push(label); assert.equal(predicate(), true)
+  }
+  h.add('dirt', 4)
+  await work.run({ type: 'terraformer', min: { x: -2, z: -2 }, max: { x: 2, z: 2 }, y: 66 })
+  assert.equal(work.task.status, 'succeeded', work.plan.decision)
+  assert.equal(h.bot.blockAt(new Vec3(0, 65, 0)).name, 'dirt'); assert.equal(h.bot.blockAt(new Vec3(0, 66, 0)).name, 'dirt')
+  assert.equal(jumps.filter((l) => /Jump/.test(l)).length, 2)
+  assert.deepEqual(h.bot.entity.position, new Vec3(0.5, 67, 0.5), 'the bot ends standing on the finished surface')
 })

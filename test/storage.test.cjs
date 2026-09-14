@@ -589,11 +589,12 @@ test('consolidation leaves reserved stock and full destinations untouched',async
   reservations=[{container:'source',fingerprint:wheat.fingerprint,quantity:1}]
   await steward.consolidate(w,hub)
 })
-test('central capacity grows the fullest category and stops after capacity is added',()=>{
+test('warehouse plans double capacity beyond demand and ignores remote spare space',()=>{
  const{expansionCategory}=require('../src/storage-steward.cjs'),hub={x:0,y:64,z:0}
- const chest=(category,used,x=0)=>({category,managed:true,position:{x,y:64,z:0},capacity:27,slots:Array(used).fill({})})
- const containers=[chest('food',26),chest('food',26),chest('overflow',27),chest('overflow',0,30)]
+ const chest=(category,used,capacity=54,x=0)=>({category,managed:true,position:{x,y:64,z:0},capacity,slots:Array(used).fill({})})
+ const containers=[chest('food',26,27),chest('food',26,27),chest('overflow',27,27),chest('overflow',0,54,30)]
  assert.equal(expansionCategory(containers,hub),'overflow')
  containers.push(chest('overflow',0));assert.equal(expansionCategory(containers,hub),'food')
- containers.push(chest('food',0));assert.equal(expansionCategory(containers,hub),null)
+ containers.push(chest('food',0),chest('food',0),chest('overflow',0))
+ assert.equal(expansionCategory(containers,hub),null)
 })

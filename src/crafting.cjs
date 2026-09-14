@@ -5,7 +5,7 @@ const { describe, plain, reserve } = require('./storage-policy.cjs')
 const storage = require('./storage.cjs')
 const { watchBlock } = require('./block-updates.cjs')
 const allowed = (name) =>
-  /^(?:(?:oak|birch|spruce|jungle|acacia|dark_oak|cherry|mangrove)_planks|stick|chest|crafting_table|furnace|bread|torch|(?:wooden|stone|iron)_(?:pickaxe|axe|shovel|hoe|sword))$/.test(
+  /^(?:(?:oak|birch|spruce|jungle|acacia|dark_oak|cherry|mangrove)_planks|stick|chest|crafting_table|furnace|bread|torch|iron_(?:helmet|chestplate|leggings|boots)|(?:wooden|stone|iron)_(?:pickaxe|axe|shovel|hoe|sword))$/.test(
     name,
   )
 function planRecipes(bot, item, quantity, carry, shared, needTable = false) {

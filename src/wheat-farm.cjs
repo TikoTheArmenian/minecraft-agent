@@ -386,7 +386,7 @@ class WheatFarm extends Survival {
   }
   async createStorage() {
     const hub = this.agent.colony?.enabled ? (await require('./storage.cjs').call(this, 'hub_get')).position : null
-    if (hub) await this.approach(new Vec3(hub.x, hub.y, hub.z))
+    if (hub) throw new Error('Central storage needs more capacity. Sam builds organized double chests; keeping harvest carried until space is available.')
     if (!this.item('chest')) {
       const table = await this.craftingTable()
       await this.planks(8)

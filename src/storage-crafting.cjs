@@ -115,25 +115,11 @@ class StorageCrafting extends Work {
       else if (command.action === 'reconcile')
         await storage.reconcile(this, command.position)
       else if (command.action === 'create') {
-        if (
-          !this.bot.inventory
-            .items()
-            .some(
-              (i) =>
-                i.name === 'chest' && require('./storage-policy.cjs').plain(i),
-            )
-        ) {
-          const job = randomUUID()
-          await db('enqueue', { job, item: 'chest', quantity: 1 })
-          const claimed = await db('claim_job', { job })
-          if (!claimed)
-            throw new Error('Chest crafting was claimed by another worker.')
-          await crafting.execute(this, claimed, { storeOutput: false })
-        }
         const {position:hub}=await db('hub_get')
-        if(hub) await this.approach(new (require('vec3').Vec3)(hub.x,hub.y,hub.z))
-        const chest = await crafting.place(this, 'chest', hub)
-        await storage.manage(this, chest.position, command.category)
+        if(!hub)throw new Error('Set storage hub X Y Z before building organized storage.')
+        await storage.scan(this)
+        await require('./storage-steward.cjs').expand(this,hub,command.category)
+        await require('./storage-steward.cjs').label(this,hub)
       } else if (command.action === 'craft') {
         const job = randomUUID()
         await db('enqueue', {
@@ -159,11 +145,24 @@ class StorageCrafting extends Work {
           const {position:hub}=await db('hub_get')
           const steward=require('./storage-steward.cjs')
           if (['consolidate','label','tools','expand'].includes(command.action) && !hub) throw new Error('Set storage hub X Y Z first.')
-          if (hub && (continuous || command.action==='expand')) await steward.expand(this,hub)
+          if (hub && (continuous || command.action==='expand') && Date.now()>=(this.nextExpansionAt||0)) {
+            try {
+              for(let built=0;built<3;built++) {
+                if(!await steward.expand(this,hub))break
+              }
+            } catch(error) {
+              if(!continuous || error.fatal || this.cancelled() || !/Missing materials|No clear warehouse bay|Warehouse floor/.test(error.message))throw error
+              this.addIssue(`Storage expansion waiting: ${error.message}`)
+              this.nextExpansionAt=Date.now()+60000
+            }
+          }
           if (hub && (continuous || ['label','expand'].includes(command.action))) await steward.label(this,hub)
           if (command.action !== 'scan') await storage.store(this)
           if (hub && (continuous || ['consolidate','organize'].includes(command.action))) await steward.consolidate(this,hub)
-          if (hub && (continuous || command.action==='tools')) await steward.tools(this,hub)
+          if (hub && (continuous || command.action==='tools')) {
+            await steward.tools(this,hub)
+            await steward.armor(this,hub)
+          }
           if (!hub && ['organize', 'maintain'].includes(command.action))
             await storage.organize(this)
           if (continuous) {

@@ -6,12 +6,14 @@ class Colony {
     key = process.env.SUPABASE_SECRET_KEY,
     worlds = process.env.COLONY_WORLDS,
     fetchImpl = fetch,
+    apiCosts = null,
   } = {}) {
     this.url = url?.replace(/\/$/, '')
     this.key = key
     this.worlds = typeof worlds === 'string' ? JSON.parse(worlds) : worlds || {}
     this.resolvedWorlds = new Map()
     this.fetch = fetchImpl
+    this.apiCosts = apiCosts
     this.enabled = !!(url || key || Object.keys(this.worlds).length)
   }
   scope(agent) {
@@ -31,7 +33,7 @@ class Colony {
       session: (agent.colonySession ||= randomUUID()),
     }
   }
-  async resolveWorld(label) {
+  async resolveWorld(label, agent) {
     // This cache only saves round trips. Postgres's unique label resolves races across processes.
     if (!this.resolvedWorlds.has(label)) {
       const existing = this.worlds[label]
@@ -42,7 +44,7 @@ class Colony {
         )
           ? existing
           : null,
-      }).catch((error) => {
+      }, agent).catch((error) => {
         this.resolvedWorlds.delete(label)
         throw error
       })
@@ -52,44 +54,45 @@ class Colony {
   }
   async call(agent, action, data = {}) {
     const { label, ...scope } = this.scope(agent)
-    const world = await this.resolveWorld(label)
+    const world = await this.resolveWorld(label, agent)
     return this.request(
       action.startsWith('hub_') ? 'colony_hub_rpc' : action.startsWith('reconcile_') ? 'colony_reconcile_rpc' : 'colony_rpc',
       {
         action,
         payload: { ...data, ...scope, world },
       },
+      agent,
     )
   }
-  async request(rpc, body) {
-    let response
+  async request(rpc, body, agent = null) {
+    const costs = agent?.apiCosts || this.apiCosts
+    const id = costs?.begin({ agent: agent?.username || body?.payload?.bot || 'project', provider: 'supabase', operation: body?.action || rpc })
+    let response, outcome = 'network_error'
     try {
-      response = await this.fetch(`${this.url}/rest/v1/rpc/${rpc}`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(8000),
-        headers: {
-          apikey: this.key,
-          'Content-Type': 'application/json',
-          ...(this.key.startsWith('eyJ')
-            ? { Authorization: `Bearer ${this.key}` }
-            : {}),
-        },
-        body: JSON.stringify(body),
-      })
-    } catch (_) {
-      throw new Error(
-        'Shared storage is unavailable; no action will be replayed automatically.',
-      )
+      try {
+        response = await this.fetch(`${this.url}/rest/v1/rpc/${rpc}`, {
+          method: 'POST', signal: AbortSignal.timeout(8000),
+          headers: { apikey: this.key, 'Content-Type': 'application/json',
+            ...(this.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.key}` } : {}) },
+          body: JSON.stringify(body),
+        })
+      } catch (error) {
+        outcome = error.name === 'TimeoutError' ? 'timeout' : 'network_error'
+        throw new Error('Shared storage is unavailable; no action will be replayed automatically.')
+      }
+      if (!response.ok) {
+        outcome = 'http_error'
+        const result = await response.json().catch(() => ({}))
+        throw new Error(/^Colony: /.test(result.message || '') ? result.message
+          : 'Shared storage request failed. Check backend configuration and migrations.')
+      }
+      outcome = 'invalid_response'
+      const result = await response.json()
+      outcome = 'completed'
+      return result
+    } finally {
+      costs?.finish(id, { outcome, httpStatus: response?.status, requestId: response?.headers?.get('x-request-id') })
     }
-    if (!response.ok) {
-      // Supabase error text may include infrastructure details. Expose only our known messages.
-      const result = await response.json().catch(() => ({}))
-      const message = /^Colony: /.test(result.message || '')
-        ? result.message
-        : 'Shared storage request failed. Check backend configuration and migrations.'
-      throw new Error(message)
-    }
-    return response.json()
   }
 }
 module.exports = { Colony }

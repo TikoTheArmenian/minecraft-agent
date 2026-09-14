@@ -155,7 +155,9 @@ async function withChest(w, position, fn, { reconcile = false } = {}) {
 }
 async function scan(w) {
   const seen = new Set()
-  for (const chest of nearby(w).slice(0, 16)) {
+  const pending=require('./warehouse-layout.cjs').pendingPositions(w)
+  for (const chest of nearby(w).slice(0, 32)) {
+    if(pending.includes(posKey(chest.position)))continue
     w.check()
     const id = identity(w.bot, chest).container
     if (seen.has(id)) continue
@@ -342,7 +344,7 @@ async function store(w, only = null) {
       )
       .sort(
         (a, b) =>
-          Number(a.category === 'overflow') - Number(b.category === 'overflow'),
+          Number(a.category === 'overflow') - Number(b.category === 'overflow') || Number(b.capacity===54)-Number(a.capacity===54) || b.slots.length-a.slots.length,
       )
     for (const chest of targets.slice(0, 8)) {
       if (amount <= 0) break

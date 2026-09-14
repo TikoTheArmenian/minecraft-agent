@@ -324,7 +324,7 @@ The routine checks again every 20 seconds and runs until Stop, disconnection, a 
 
 ### OpenAI chat and wheat progress
 
-Set `OPENAI_API_KEY` in the controller environment or the ignored root `.env` file, then run `npm run web`. All bots share this server-side key. New bots have messaging enabled by default; the **LLM chat** card only enables or disables replies for the selected bot. Per-bot `llm.json` files store that preference, never credentials or model selection. Restart the controller after changing the environment. API usage is billed through your API account.
+Set `OPENAI_API_KEY` in the controller environment or the ignored root `.env` file, then run `npm run web`. All bots share this server-side key and use `gpt-5.6-luna` for messaging. New bots have messaging enabled by default; the **LLM chat** card only enables or disables replies for the selected bot. Per-bot `llm.json` files store that preference, never credentials or model selection. Restart the controller after changing the environment. API usage is billed through your API account.
 
 Say `WalkBot, what are you doing?` in Minecraft chat or whisper to WalkBot. Each request includes current task, inventory, farm/survival progress, and nearby observations, plus a short conversation history. Uses the [OpenAI Responses API](https://developers.openai.com/api/reference/cli/resources/responses/methods/create) with `store:false`, a 20-second timeout, a single pending request, and a 10-request/minute limit. Replies are informational: chat has no command execution or movement tools. Messages not addressing WalkBot are ignored. Errors and configuration state appear in the chat card.
 

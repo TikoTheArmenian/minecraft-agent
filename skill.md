@@ -238,3 +238,21 @@ and let named coordination distribute the new location. Empty remote capacity do
 a full central store. Include undeposited carried tools in production-buffer counts: counting
 only chest stock caused repeated crafting when a full chest rejected the output. Missing wood
 or placement space needs a visible bounded blocker, not repeated duplicate crafting jobs.
+
+
+### Warehouse revision: double chests and armor
+
+The current warehouse implementation supersedes the earlier single-chest expansion policy.
+Read `src/warehouse-layout.cjs` for the fixed south-facing grid, floor/aisle checks, persistent
+partial-bay recovery, and verification before registration. Build both halves before exposing
+a 54-slot container to shared stock. Do not join an already registered single chest: its ID,
+leases, operations and reservations require an explicit topology migration. Keep old stock
+readable while consolidating into the new doubles; do not destroy full legacy chests.
+
+Capacity targets include 27 spare slots per category or 25% of used slots, whichever is larger,
+plus 54 spare overflow slots. Try at most three bays per pass inside the bounded site. Layout
+and materials can prevent completion; report that instead of claiming infinite expansion.
+Labels belong on the same front face/half at the same height, not whichever side is nearest.
+Use `test/warehouse-layout.test.cjs` for aligned geometry, double verification, registered-half
+rejection and armor planning. Sam's armor buffer follows successful tool replenishment and
+counts carried outputs; the current supported armor is iron, with at most four shared sets.

@@ -68,6 +68,7 @@ function createApp(agent, fleet = null) {
     express.static(path.join(__dirname, '..', 'public'), { etag: false, cacheControl: false }),
   )
   app.get('/api/state', (req, res) => res.json(agent.state))
+  require('./cost-routes.cjs').installCostRoutes(app, agent, fleet)
   app.get('/api/skills', (req, res) => res.json(require('./skills.cjs').publicSkills()))
   app.get('/api/storage', async (req, res, next) => {
     try {
@@ -232,11 +233,12 @@ function createApp(agent, fleet = null) {
   return app
 }
 if (require.main === module) {
-  const colony = new (require('./colony.cjs').Colony)()
+  const apiCosts = new (require('./api-costs.cjs').ApiCosts)()
+  const colony = new (require('./colony.cjs').Colony)({ apiCosts })
   // Item icons come from the installed Minecraft client jar; the app runs without them.
   require('../scripts/extract-textures.cjs').ensureTextures({ log: console.log })
   // Every bot in src/fleet.cjs gets its own Agent, data directory and API mount.
-  const fleet = require('./fleet.cjs').buildFleet(Agent, { colony, logToConsole: true })
+  const fleet = require('./fleet.cjs').buildFleet(Agent, { colony, apiCosts, logToConsole: true })
   const agent = fleet.marc
   const server = createApp(agent, fleet).listen(4317, '127.0.0.1')
   server.on('listening', () =>

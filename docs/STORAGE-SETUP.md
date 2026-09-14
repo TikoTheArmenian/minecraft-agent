@@ -166,3 +166,33 @@ and crafting ingredients are tried first; a bounded nearby wood search supplies 
 chest materials when accessible. Missing materials or clear placement space is reported.
 Undeposited carried tools count toward the tool buffer, preventing repeated crafting while
 storage is full. Empty remote chests do not count as capacity at the central hub.
+
+
+## Warehouse layout and armor (current policy)
+
+Sam now builds new capacity as **double chests**, registering a bay only after Minecraft
+confirms both south-facing halves and the combined 54-slot window. Nine fixed bays form
+three rows within the eight-block hub: pairs are spaced four blocks apart, at one elevation,
+with a front sign and a two-block-deep approach strip. A bounded supported floor can be added;
+existing crops, chests and obstructing structures are not removed to force the layout.
+Incomplete bays are saved in Sam's scoped coordinator memory and excluded from ordinary scans.
+Do not register a partial single half or join an already registered legacy single chest.
+
+Capacity planning excludes legacy single-chest capacity: it creates enough new double capacity
+to hold observed stock plus at least 27 extra slots per category (or 25% of occupied slots,
+whichever is larger), and 54 extra overflow slots. Up to three bays are attempted per pass.
+This supersedes the earlier four-free-slot/single-chest expansion rule. New deposits favor
+packed double chests; consolidation drains legacy singles into the new warehouse as room
+becomes available. Old empty chest blocks are retained. A full nine-bay site requires an
+explicitly larger/relocated hub design; missing materials or blocked geometry is reported.
+Sam owns central warehouse construction; farmers no longer scatter single chests at that hub.
+
+Signs use the same southern face of the canonical half of each double chest, at chest height.
+Existing incorrect front text can be edited through the sign editor. Sam notifies workers via
+the existing layout-revision chat exchange when new managed bays appear.
+
+After all five tool types meet their shared targets, Sam can craft iron helmets, chestplates,
+leggings and boots. He builds one of each missing piece per pass, up to four shared sets,
+using actual available iron and storage capacity. Carried outputs count toward the target.
+Insufficient iron is not fabricated or automatically smelted. Armor crafting does not
+interrupt missing-tool replenishment, and supplying armor does not automatically equip peers.

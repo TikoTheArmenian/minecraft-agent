@@ -72,10 +72,12 @@ class Agent extends EventEmitter {
     spawnTimeoutMs = 20000,
     logToConsole = false,
     colony = new Colony(),
+    apiCosts = null,
   } = {}) {
     super()
     this.username = username
     this.colony = colony
+    this.apiCosts = apiCosts
     this.createBot = createBot
     this.statusPing = statusPing
     this.dataDir = dataDir

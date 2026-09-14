@@ -11,6 +11,7 @@ const { Vec3 } = require('vec3')
 const { Survival } = require('./survival.cjs')
 const { Work } = require('./work.cjs')
 const { BUILDING_BLOCKS, TravelMovements } = require('./travel.cjs')
+const { goals } = require('mineflayer-pathfinder')
 const { BlockApproachGoal, canView, workingCell } = require('./block-approach.cjs')
 const { isAir } = require('./world.cjs')
 const { watchBlock } = require('./block-updates.cjs')
@@ -62,6 +63,32 @@ function protectedBlock(bot, block) {
         for (const dy of [0, 1])
           if ((dx || dz || dy) && bot.blockAt(block.position.offset(dx, dy, dz))?.name === 'farmland') return true
   return false
+}
+
+// A player places against a visible FACE: the reference block's centre can be hidden (a pit wall
+// under the surrounding surface) while its face toward the destination is in plain view.
+function faceVisible(bot, eye, ref, face, reach = 4) {
+  const target = ref.offset(0.5, 0.5, 0.5).plus(face.scaled(0.5)), delta = target.minus(eye), distance = delta.norm()
+  if (distance > reach) return false
+  if (!bot.world?.raycast) return !!bot.canSeeBlock?.(bot.blockAt(ref))
+  const hit = bot.world.raycast(eye, delta.normalize(), distance + 0.05, (b, iter) => b.position.equals(ref) || !!iter.intersect(b.shapes, b.position))
+  return !!hit?.position.equals(ref)
+}
+// Stance for one fill: solid footing, body outside the destination column, face in view and reach.
+class FillStanceGoal extends goals.Goal {
+  constructor(bot, dest, ref, face) {
+    super()
+    this.bot = bot
+    this.dest = dest
+    this.ref = ref
+    this.face = face
+  }
+  heuristic(node) { return Math.max(0, node.distanceTo(this.dest) - 2) }
+  isEnd(node) {
+    if (node.x === this.dest.x && node.z === this.dest.z) return false
+    if (node.y < this.dest.y - 1 || this.bot.blockAt(node.offset(0, -1, 0))?.boundingBox !== 'block') return false
+    return faceVisible(this.bot, node.offset(0.5, this.bot.entity.eyeHeight || 1.62, 0.5), this.ref, this.face)
+  }
 }
 
 // `flatten X1 Z1 to X2 Z2 at Y` → validated rectangle; bare aliases are handled by skills.cjs.
@@ -391,32 +418,27 @@ class Terraformer extends Survival {
       BUILDING_BLOCKS.indexOf(a.name) - BUILDING_BLOCKS.indexOf(b.name))
     return items[0] || null
   }
-  // Candidate reference faces for a fill, best first. Side walls at the destination's own level
-  // come before the block below: from the surrounding surface a face two or three blocks down is
-  // beyond stance reach, while a same-level wall stays reachable through the open pit.
+  // Candidate reference faces for a fill: the block below first (the support just placed), then
+  // side walls nearest the bot. Each is tried with a face-visibility stance before giving up.
   supportsFor(dest) {
     const here = this.bot.entity.position
+    const out = []
+    const below = this.bot.blockAt(dest.offset(0, -1, 0))
+    if (solid(below)) out.push({ ref: below.position, face: new Vec3(0, 1, 0) })
     const sides = []
     for (const d of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
       const n = this.bot.blockAt(dest.offset(...d))
       if (solid(n) && !protectedBlock(this.bot, n)) sides.push({ ref: n.position, face: new Vec3(-d[0], -d[1], -d[2]) })
     }
     sides.sort((a, b) => a.ref.distanceTo(here) - b.ref.distanceTo(here))
-    const below = this.bot.blockAt(dest.offset(0, -1, 0))
-    if (solid(below)) sides.push({ ref: below.position, face: new Vec3(0, 1, 0) })
-    return sides
+    return out.concat(sides)
   }
-  // Stand where the support face is visible while the body stays out of the destination cell.
-  async standNear(ref, dest) {
-    const occupies = (node) => node.x === dest.x && node.z === dest.z && (node.y === dest.y || node.y === dest.y - 1)
-    const tooLow = (node) => node.y < dest.y - 1 // Eye must stay above the support's top face.
-    const acceptable = (node) => !occupies(node) && !tooLow(node)
-    const feet = workingCell(this.bot)
-    if (acceptable(feet) && canView(this.bot, ref)) return
-    const goal = new BlockApproachGoal(this.bot, ref, { interaction: true })
-    const base = goal.isEnd.bind(goal)
-    goal.isEnd = (node) => acceptable(node) && !(node.x === dest.x && node.z === dest.z) && base(node)
+  // Stand where the reference face is visible while the body stays out of the destination column.
+  async standNear(ref, dest, face = new Vec3(0, 1, 0)) {
+    const goal = new FillStanceGoal(this.bot, dest, ref, face)
+    if (goal.isEnd(workingCell(this.bot))) return
     await this.travel(goal, `Walk beside the fill spot ${key(dest)}`)
+    if (!goal.isEnd(workingCell(this.bot))) throw new Error('No stance with a clear view of the fill face.')
   }
   placementValid(dest, ref, face, name) {
     this.check()
@@ -440,7 +462,7 @@ class Terraformer extends Survival {
     let stance = null
     for (const candidate of supports) {
       try {
-        await this.standNear(candidate.ref, dest)
+        await this.standNear(candidate.ref, dest, candidate.face)
         stance = candidate
         break
       } catch (error) {
@@ -471,6 +493,47 @@ class Terraformer extends Survival {
       ack.cleanup()
     }
   }
+  async motionUntil(predicate, label) {
+    let listener
+    try {
+      await this.timed(() => new Promise((resolve, reject) => {
+        listener = () => { try { this.check(); if (predicate()) resolve() } catch (error) { reject(error) } }
+        this.bot.on('physicsTick', listener)
+        listener()
+      }), 4000, label)
+    } finally {
+      if (listener) this.bot.off('physicsTick', listener)
+    }
+  }
+  // Standing inside the destination (a pit the bot dropped into) is the one case where the fill
+  // goes under the feet: jump, place on the floor while airborne, land one block higher.
+  async jumpFill(dest, item) {
+    const ref = dest.offset(0, -1, 0)
+    if (!solid(this.bot.blockAt(ref))) throw new Error('No solid floor under the feet to build on.')
+    this.decide(`Climbing out of ${key(dest)} by placing ${item.name.replaceAll('_', ' ')} under my feet.`)
+    await this.equip(item)
+    await this.timed(() => this.bot.lookAt(dest.offset(0.5, 0, 0.5)), 5000, 'Face the floor of the pit')
+    this.check()
+    if (this.bot.heldItem?.name !== item.name) throw new Error('Fill material is no longer equipped.')
+    const type = this.bot.registry.blocksByName[item.name]
+    const ack = watchBlock(this.bot, dest, (s) => s >= type.minStateId && s <= type.maxStateId, this.controller.signal)
+    this.bot.setControlState('jump', true)
+    try {
+      await this.motionUntil(() => this.bot.entity.position.y >= dest.y + 1.01, 'Jump before placing the block under the feet')
+      await this.timed(() => this.bot._placeBlockWithOptions(this.bot.blockAt(ref), new Vec3(0, 1, 0), { forceLook: 'ignore', swingArm: 'right' }), 7000, `Place ${item.name} under the feet at ${key(dest)}`)
+      await this.timed(() => ack.promise, 4000, `Confirm fill at ${key(dest)}`)
+    } finally {
+      this.bot.setControlState('jump', false)
+      ack.cleanup()
+    }
+    if (this.bot.blockAt(dest)?.name !== item.name) throw new Error('The server did not confirm the fill block under the feet.')
+    this.job.filled++
+    this.plan.filled = this.job.filled
+    this.counts.placed = (this.counts.placed || 0) + 1
+    this.sync()
+    this.saveJob()
+    await this.motionUntil(() => this.bot.entity.onGround !== false && this.bot.entity.position.floored().equals(dest.offset(0, 1, 0)), 'Land on the placed block')
+  }
   async fillColumn(x, z, cells) {
     const a = this.job.area
     // Bottom-up so each support rests on the one before it.
@@ -483,6 +546,11 @@ class Terraformer extends Survival {
       if (!isAir(b) && !liquid(b)) throw new Error(`${key(dest)}: ${b.name} must be cut before filling.`)
       const item = this.fillItem(y === a.y)
       if (!item) throw Object.assign(new Error('Out of fill material.'), { code: 'NO_MATERIAL' })
+      const feet = this.bot.entity.position.floored()
+      if (feet.x === dest.x && feet.z === dest.z && feet.y === dest.y && !this.bot.entity.isInWater) {
+        await this.jumpFill(dest, item)
+        continue
+      }
       this.decide(`Filling ${key(dest)} with ${item.name.replaceAll('_', ' ')} · ${this.job.filled} placed so far.`)
       await this.placeFill(dest, item)
     }
@@ -651,4 +719,4 @@ class Terraformer extends Survival {
     }
   }
 }
-module.exports = { Terraformer, parseTerraformer, protectedBlock, PROTECTED_NAMES, PROTECTED_PATTERNS, FILL_YIELD, CUT_ABOVE, FILL_BELOW, PROTECT_BUFFER }
+module.exports = { Terraformer, parseTerraformer, protectedBlock, FillStanceGoal, faceVisible, PROTECTED_NAMES, PROTECTED_PATTERNS, FILL_YIELD, CUT_ABOVE, FILL_BELOW, PROTECT_BUFFER }

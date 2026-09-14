@@ -322,6 +322,8 @@ class Smelter extends Work {
       result.worked = true
       result.produced += await this.waitForFurnaces()
       await this.storeOutput()
+      // A one-off job can be satisfied entirely by reclaimed output.
+      if (result.produced >= limit) return result
     }
     this.decide('Checking carried items and shared storage for smeltable stock.')
     let stock
@@ -675,6 +677,7 @@ class Smelter extends Work {
         job.collected += taken
         this.plan.smelted[job.output] = (this.plan.smelted[job.output] || 0) + taken
         this.counts.smelted = (this.counts.smelted || 0) + taken
+        this.persist()
       }
       const input = window.inputItem(),
         fuel = window.fuelItem()
