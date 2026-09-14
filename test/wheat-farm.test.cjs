@@ -10,9 +10,9 @@ test('harvest only ripe wheat and replant before proceeding',async()=>{
  await f.work.harvestWheat();assert.deepEqual(f.dug,['wheat']);assert.deepEqual(f.placed,['wheat']);assert.equal(f.bot.blockAt(new Vec3(1,64,0)).getProperties().age,0)
 })
 test('missing seed preserves mature crop',async()=>{const f=setup();f.set('farmland',new Vec3(1,63,0));f.set('wheat',new Vec3(1,64,0),7);await f.work.harvestWheat();assert.equal(f.dug.length,0)})
-test('expansion leaves walking lanes and dry ground untouched',async()=>{
+test('expansion fills former walking lanes while leaving dry ground untouched',async()=>{
  const f=setup();f.add('wheat_seeds',8);f.add('wooden_hoe');f.set('water',new Vec3(0,63,0));f.set('dirt',new Vec3(1,63,1));f.set('dirt',new Vec3(3,63,1));f.set('dirt',new Vec3(12,63,12));f.work.extendShore=async()=>{}
- await f.work.expand();assert.deepEqual(f.tilled.map(p=>p.toString()),[new Vec3(1,63,1).toString()]);assert.equal(f.work.count('wheat_seeds'),7)
+ await f.work.expand();assert.deepEqual(f.tilled.map(p=>p.toString()),[new Vec3(1,63,1).toString(),new Vec3(3,63,1).toString()]);assert.equal(f.work.count('wheat_seeds'),6)
 })
 test('shore expansion requires a separate permanent irrigation block',()=>{const f=setup(),p=new Vec3(1,63,1);f.set('water',p);assert.equal(f.work.irrigationRemains(p),false);f.set('water',new Vec3(0,63,1));assert.equal(f.work.irrigationRemains(p),true)})
 test('chest deposits confirmed surplus and retains food and planting reserves',async()=>{
@@ -112,4 +112,35 @@ test('unconfirmed seed withdrawals are not counted and always close storage',asy
  f.bot.openContainer=async()=>({containerItems:()=>[{type:registry.itemsByName.wheat_seeds.id,count:20}],withdraw:async()=>{},close(){closed=true}})
  await require('../src/farm-storage.cjs').restockSeeds(f.work)
  assert.equal(f.work.counts.seedsRetrieved,undefined);assert.equal(closed,true);assert.match(f.work.plan.blocker,/not fully confirmed/)
+})
+test('retrieves construction stock from chests without withdrawing seeds',async()=>{
+ const f=setup();f.set('chest',new Vec3(2,64,1));let dirt=24
+ f.bot.openContainer=async()=>({containerItems:()=>[{type:registry.itemsByName.dirt.id,count:dirt}],withdraw:async(type,meta,count)=>{assert.equal(type,registry.itemsByName.dirt.id);dirt-=count;f.add('dirt',count)},close(){}})
+ await require('../src/farm-storage.cjs').restockBuilding(f.work)
+ assert.equal(f.work.count('dirt'),24);assert.equal(dirt,0)
+})
+test('expansion does not spend the last eight access blocks',async()=>{
+ const f=setup();f.add('dirt',8);f.set('farmland',new Vec3(1,63,1));f.set('air',new Vec3(2,63,1));f.work.gather=async()=>{}
+ await f.work.extendShore();assert.equal(f.work.count('dirt'),8);assert.equal(f.work.counts.groundAdded,undefined)
+})
+test('harvest stays with neighboring ripe wheat instead of alternating across the starting point',async()=>{
+ const f=setup();f.add('wheat_seeds',4);const order=[]
+ for(const x of [1,-2,3,-4]){f.set('farmland',new Vec3(x,63,0));f.set('wheat',new Vec3(x,64,0),7).stateId+=7}
+ const dig=f.work.dig.bind(f.work);f.work.dig=async(p,...args)=>{order.push(p.x);await dig(p,...args)}
+ await f.work.harvestWheat();assert.deepEqual(order,[1,3,-2,-4])
+})
+test('wood trips collect a batch rather than stopping at the first recipe ingredient',async()=>{
+ const f=setup();f.work.approach=async p=>{f.work.check();f.bot.entity.position=p.offset(1,0,0)};for(let x=1;x<=16;x++)f.set('oak_log',new Vec3(x,64,0))
+ await f.work.gather(['oak_log'],()=>f.work.count('oak_log')>=1,'wood',2,false)
+ assert.equal(f.work.count('oak_log'),16)
+})
+test('a small wood patch still completes the original need without exploring just for surplus',async()=>{
+ const f=setup();f.set('oak_log',new Vec3(1,64,0));f.work.explore=async()=>assert.fail('do not travel farther for bonus stock')
+ await f.work.gather(['oak_log'],()=>f.work.count('oak_log')>=1,'wood',2,true)
+ assert.equal(f.work.count('oak_log'),1)
+})
+test('a modest harvest does not trigger a chest trip and harvesting precedes supply work',async()=>{
+ const f=setup(),events=[];f.add('wheat',20);f.add('wheat_seeds',20);f.add('dirt',16);f.work.nextTorchAttempt=Infinity
+ f.work.harvestWheat=async()=>events.push('harvest');f.work.expand=async()=>events.push('expand');f.work.store=async()=>events.push('store')
+ await f.work.cycle();assert.deepEqual(events,['harvest','expand'])
 })

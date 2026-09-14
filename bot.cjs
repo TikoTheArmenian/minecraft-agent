@@ -20,10 +20,11 @@ if (!['offline', 'microsoft'].includes(config.auth)) {
 // Microsoft login tokens, when used, stay in the project's ignored .auth folder.
 const bot = mineflayer.createBot({
   ...config,
-  profilesFolder: path.join(__dirname, '.auth')
+  profilesFolder: path.join(__dirname, '.auth'),
 })
 const terminal = readline.createInterface({
-  input: process.stdin, output: process.stdout
+  input: process.stdin,
+  output: process.stdout,
 })
 // These variables describe the current session and its scheduled movement.
 let ready = false
@@ -63,20 +64,23 @@ function wander() {
     if (!ready || run !== generation || stepping) return
     stepping = true
     try {
-    bot.clearControlStates()
-    // Yaw is horizontal rotation in radians; pitch 0 looks straight ahead.
-    await bot.look(Math.random() * Math.PI * 2, 0)
-    // The turn is asynchronous: the user might have stopped us while it completed.
-    if (!ready || run !== generation) return
-    bot.setControlState('forward', true)
-    walkingTimer = setTimeout(() => bot.clearControlStates(), 1200)
-    } finally { stepping = false }
+      bot.clearControlStates()
+      // Yaw is horizontal rotation in radians; pitch 0 looks straight ahead.
+      await bot.look(Math.random() * Math.PI * 2, 0)
+      // The turn is asynchronous: the user might have stopped us while it completed.
+      if (!ready || run !== generation) return
+      bot.setControlState('forward', true)
+      walkingTimer = setTimeout(() => bot.clearControlStates(), 1200)
+    } finally {
+      stepping = false
+    }
   }
   // Handle promise failures from interval callbacks instead of leaving rejections unhandled.
-  const tick = () => step().catch(err => {
-    if (run === generation) stop()
-    console.error('Wander error:', err.message)
-  })
+  const tick = () =>
+    step().catch((err) => {
+      if (run === generation) stop()
+      console.error('Wander error:', err.message)
+    })
   // Start immediately, then try another step every 2.5 seconds.
   tick()
   wanderTimer = setInterval(tick, 2500)
@@ -116,15 +120,18 @@ bot.on('death', () => {
   console.log('Died. Waiting for respawn; movement will stay stopped.')
 })
 // Log server/network failures and clean up when the connection ends.
-bot.on('kicked', reason => { exitCode = 1; console.error('Kicked:', reason) })
-bot.on('error', err => {
+bot.on('kicked', (reason) => {
+  exitCode = 1
+  console.error('Kicked:', reason)
+})
+bot.on('error', (err) => {
   exitCode = 1
   stop()
   ready = false
   console.error('Connection error:', err.message)
   quit()
 })
-bot.on('end', reason => {
+bot.on('end', (reason) => {
   closing = true
   ready = false
   stop()
@@ -134,7 +141,7 @@ bot.on('end', reason => {
 })
 
 // Command router: normalize a line, then dispatch to a small, bounded action.
-terminal.on('line', async line => {
+terminal.on('line', async (line) => {
   const requestGeneration = generation
   const command = line.trim().toLowerCase()
   try {
@@ -169,5 +176,7 @@ terminal.on('line', async line => {
 })
 // Control-C and closing stdin use the same shutdown path as the quit command.
 terminal.on('SIGINT', quit)
-terminal.on('close', () => { if (!closing) quit() })
+terminal.on('close', () => {
+  if (!closing) quit()
+})
 process.on('SIGINT', quit)

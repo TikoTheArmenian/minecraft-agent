@@ -5,3 +5,7 @@ config.json
 
 data/
 public/textures/
+.env
+.env.*
+!.env.example
+supabase/.temp/

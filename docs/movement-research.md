@@ -58,3 +58,18 @@ skills can use the resulting access route.
 A real Prismarine-physics regression traverses a gap and climbs onto an island
 three blocks above the departure platform, with air beneath the entire bridge.
 A second regression checks reference-block support and unknown-cell rejection.
+
+The real island snapshot exposed a second constraint: a usable stone staging
+platform was more than six blocks away and above the old staging-height scan.
+The island candidate scan now searches 12 blocks horizontally and six upward,
+still using the shared planning budget. Candidates favour useful landings near
+the final destination. A regression replays the captured terrain and finds the
+six-block bridge from that platform to the birch island.
+
+FARMER retrieves ordinary construction blocks from chests or gathers exposed
+soil before other resource trips, and expansion retains eight dirt blocks for
+access. Farm-level soil remains protected; higher exposed soil can supply the
+bridge. Dirt and log gathering may use an open-water surface stance with actual
+reach/visibility checks; submerged work stances remain excluded. Intermediate
+segment failures now return to normal route recovery rather than leaking a
+PartialRoute error to the gathering routine.

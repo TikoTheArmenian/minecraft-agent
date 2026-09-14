@@ -7,7 +7,7 @@
     "start": "node start.cjs",
     "check": "node scripts/check.cjs",
     "test": "node --test test/*.test.cjs",
-    "web": "node src/server.cjs",
+    "web": "node --env-file-if-exists=.env src/server.cjs",
     "logs": "tail -n 80 -F data/logs/activity.log",
     "textures": "node scripts/extract-textures.cjs"
   },

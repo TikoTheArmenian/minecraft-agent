@@ -6,7 +6,7 @@ const { Travel,TravelMovements }=require('../src/travel.cjs')
 const { fixture,Vec3 }=require('./helpers/travel-fixture.cjs')
 const { BlockApproachGoal,canView }=require('../src/block-approach.cjs')
 
-test('movement allows surface water entries and exits, but bounds drops and avoids farmland',()=>{
+test('movement allows surface water entries and exits, but bounds drops and can walk through dense farmland',()=>{
   const {bot,changes,make}=fixture({bank:62})
   const moves=bot.pathfinder.movements
   assert.equal(moves.canDig,false)
@@ -17,7 +17,8 @@ test('movement allows surface water entries and exits, but bounds drops and avoi
   moves.getMoveJumpUp(new Move(4,62,0,0,0),{x:1,z:0},neighbors)
   assert.ok(neighbors.some(n=>n.x===5 && n.y===63))
   changes.set('5,62,0',make('farmland',new Vec3(5,62,0)))
-  assert.equal(moves.exclusionStep(bot.blockAt(new Vec3(5,63,0))),100)
+  assert.equal(moves.exclusionStep(bot.blockAt(new Vec3(5,63,0))),0)
+  assert.equal(moves.getLandingBlock(new Move(4,65,0,0,0),{x:1,z:0}),null)
 })
 
 for(const [bank,blocks] of [[62,0],[63,1],[64,3]]) {
@@ -227,9 +228,13 @@ test('Stop interrupts sliced planning instead of waiting for every candidate',as
  try{await assert.rejects(new Travel(work).path(bot.pathfinder.movements,bot.entity.position,new goals.GoalBlock(8,64,0)));assert.ok(slices<10)}finally{clearTimeout(timer)}
 })
 test('timeout exposes a useful dry-land segment without falsely announcing arrival',async()=>{
- const {bot}=fixture(),goal=new goals.GoalBlock(-4,66,0),pending=bot.pathfinder.goto(goal)
+ const {bot}=fixture(),goal=new goals.GoalBlock(-5,66,0)
+ bot.removeAllListeners('physicsTick') // Drive the installed route's progress explicitly in this event test.
+ const pending=bot.pathfinder.goto(goal)
  bot.emit('path_update',{status:'timeout',path:[new Vec3(-4,66,0)]})
- await assert.rejects(pending,e=>e.name==='PartialRoute' && e.endpoint.x===-4)
+ assert.equal(bot.pathfinder.goal,goal,'keep the already computed route installed')
+ bot.entity.position=new Vec3(-3.5,66,.5);bot.emit('physicsTick')
+ await assert.rejects(pending,e=>e.name==='PartialRoute' && e.endpoint.x===-4 && e.followed)
  bot.pathfinder.setGoal(null)
 })
 test('segments walk an intermediate endpoint then retry the original goal',async()=>{
@@ -263,4 +268,57 @@ test('floating island plans contain only supported placements and reject unloade
  for(const plan of step.value){const built=new Set();for(const p of plan.placements){assert.ok(built.has(p.ref.toString()) || bot.blockAt(p.ref)?.boundingBox==='block');assert.ok(p.pos.distanceTo(p.ref)===1);built.add(p.pos.toString())}}
  const original=bot.blockAt.bind(bot);bot.blockAt=p=>p.x>0&&p.x<4?null:original(p)
  const unknown=islandRoutes(bot,new goals.GoalBlock(8,67,0));do{step=unknown.next()}while(!step.done);assert.equal(step.value.length,0)
+})
+test('captured island approach finds a bounded bridge from the higher stone platform',async()=>{
+ const {bot,work}=fixture({stock:16}),data=require('./helpers/island-terrain.json'),Block=require('prismarine-block')(bot.registry),blocks=new Map()
+ for(const[x,z,lo,hi,id]of data.runs)for(let y=lo;y<=hi;y++){const p=new Vec3(x,y+60,z),b=Block.fromStateId(id,0);b.position=p;blocks.set(p.toString(),b)}
+ bot.blockAt=p=>blocks.get(p.floored().toString()) || null
+ bot.entity.position=new Vec3(data.start[0],data.start[1]+60,data.start[2]);bot.entity.isInWater=true
+ const goal=new goals.GoalBlock(data.target[0],data.target[1]+60,data.target[2]),plan=await new Travel(work).shorePlan(goal)
+ assert.equal(plan?.kind,'island-ramp');assert.ok(plan.placements.length<=8);assert.ok(plan.staging.y>=64)
+})
+test('resource gathering can target an exposed island block from open surface water',()=>{
+ const {bot,changes,make}=fixture(),p=new Vec3(3,65,0),node=new Vec3(3,62,0)
+ changes.set('3,65,0',make('dirt',p))
+ assert.equal(new BlockApproachGoal(bot,p).isEnd(node),false)
+ assert.equal(new BlockApproachGoal(bot,p,{allowSurface:true}).isEnd(node),true)
+ changes.set('3,63,0',make('water',new Vec3(3,63,0)))
+ assert.equal(new BlockApproachGoal(bot,p,{allowSurface:true}).isEnd(node),false)
+})
+test('captured birch resource goal prioritizes an island landing over cheap irrelevant steps',async()=>{
+ const {bot,work}=fixture({stock:16}),data=require('./helpers/island-resource-terrain.json'),Block=require('prismarine-block')(bot.registry),blocks=new Map()
+ for(const[x,z,lo,hi,id]of data.runs)for(let y=lo;y<=hi;y++){const p=new Vec3(x,y+64,z),b=Block.fromStateId(id,0);b.position=p;blocks.set(p.toString(),b)}
+ bot.blockAt=p=>blocks.get(p.floored().toString()) || null
+ bot.entity.position=new Vec3(data.start[0],data.start[1]+64,data.start[2])
+ const goal=new BlockApproachGoal(bot,new Vec3(data.target[0],data.target[1]+64,data.target[2]),{allowSurface:true})
+ const plan=await new Travel(work).shorePlan(goal)
+ assert.equal(plan?.kind,'island-ramp');assert.equal(plan.placements.length,6)
+})
+
+test('completed partial segments are not searched and walked a second time',async()=>{
+ const {bot,work}=fixture(),goal=new goals.GoalBlock(8,64,0),seen=[]
+ bot.pathfinder.goto=async g=>{seen.push(g);if(seen.length===1)throw Object.assign(new Error('segment'),{name:'PartialRoute',endpoint:new Vec3(2,63,0),followed:true})}
+ await new Travel(work).segments(goal)
+ assert.deepEqual(seen,[goal,goal])
+})
+test('weighted long-walk search expands fewer nodes around a wall using the same legal moves',()=>{
+ const {WalkingSearchGoal}=require('../src/travel.cjs'),AStar=require('mineflayer-pathfinder/lib/astar'),Move=require('mineflayer-pathfinder/lib/move')
+ const goal=new goals.GoalBlock(60,64,0)
+ const movements={getNeighbors(n){return [[1,0],[-1,0],[0,1],[0,-1]].map(([x,z])=>new Move(n.x+x,64,n.z+z,0,1)).filter(p=>p.x>=-10&&p.x<=80&&Math.abs(p.z)<=30&&!(p.x===20&&Math.abs(p.z)<=12))}}
+ const search=g=>new AStar(new Move(0,64,0,0,0),movements,g,10000,10000).compute()
+ const plain=search(goal),weighted=search(new WalkingSearchGoal(goal))
+ assert.equal(plain.status,'success');assert.equal(weighted.status,'success')
+ assert.ok(weighted.visitedNodes < plain.visitedNodes*.7,`${weighted.visitedNodes} weighted vs ${plain.visitedNodes} ordinary nodes`)
+ assert.ok(weighted.path.every(p=>!(p.x===20&&Math.abs(p.z)<=12)))
+ assert.equal(goal.isEnd(weighted.path.at(-1)),true)
+})
+
+test('real physics completes a sixty-block walk with weighted search',async()=>{
+ const {bot,work,make,simulate,logs}=fixture({stock:0})
+ bot.blockAt=p=>{p=p.floored();return Math.abs(p.z)>6||p.x< -5||p.x>70?null:make(p.y<=63?'stone':'air',p)}
+ bot.entity.position=new Vec3(.5,64,.5)
+ const goal=new goals.GoalBlock(60,64,0)
+ await simulate(new Travel(work).go(goal),6000)
+ assert.equal(goal.isEnd(bot.entity.position.floored()),true)
+ assert.ok(logs.some(l=>l.event==='travel.search'))
 })

@@ -171,3 +171,37 @@ test('a burst of state changes reaches the browser without closing its event str
   agent.state.burst=2000;agent.publish()
   assert.equal((await reader.read()).done,false)
 })
+
+test('fleet commands, maps, logs and state remain isolated; global stop reaches all four',async t=>{
+  const {agent:marc}=setup(t),{agent:tree}=setup(t),{agent:barneett}=setup(t),{agent:sam}=setup(t)
+  marc.state.username='Marc';tree.state.username='Jerry';barneett.state.username='Barneett';sam.state.username='Sam'
+  const commands=[[],[],[],[]]
+  marc.command=text=>commands[0].push(text);tree.command=text=>commands[1].push(text);barneett.command=text=>commands[2].push(text);sam.command=text=>commands[3].push(text)
+  let stopped=0;marc.stop=()=>stopped++;tree.stop=()=>stopped++;barneett.stop=()=>stopped++;sam.stop=()=>stopped++
+  marc.maps.snapshot=()=>({owner:'marc'});tree.maps.snapshot=()=>({owner:'tree'})
+  const server=createApp(marc,{marc,tree,barneett,sam}).listen(0,'127.0.0.1')
+  await new Promise(r=>server.once('listening',r));t.after(()=>{server.closeAllConnections();server.close()})
+  const url=`http://127.0.0.1:${server.address().port}`
+  const post=(route,data)=>fetch(url+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+  assert.equal((await post('/bots/tree/api/command',{text:'farm trees'})).status,200)
+  assert.equal((await post('/bots/barneett/api/command',{text:'practice-movement'})).status,200)
+  assert.equal((await post('/bots/sam/api/command',{text:'storage and crafting'})).status,200)
+  assert.deepEqual(commands,[[],['farm trees'],['practice-movement'],['storage and crafting']])
+  assert.equal((await (await fetch(url+'/bots/sam/api/state')).json()).username,'Sam')
+  assert.equal((await (await fetch(url+'/bots/barneett/api/state')).json()).username,'Barneett')
+  assert.equal((await (await fetch(url+'/bots/tree/api/state')).json()).username,'Jerry')
+  assert.equal((await (await fetch(url+'/bots/marc/api/map')).json()).owner,'marc')
+  assert.equal((await (await fetch(url+'/bots/tree/api/map')).json()).owner,'tree')
+  assert.deepEqual(Object.keys(await (await fetch(url+'/api/fleet')).json()),['marc','tree','barneett','sam'])
+  assert.equal((await post('/api/stop-all',{})).status,200);assert.equal(stopped,4)
+  assert.equal((await post('/bots/unknown/api/command',{text:'stop'})).status,404)
+})
+
+test('Jerry preflight permits Marc online and checks its own duplicate identity',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'treebot-connect-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}))
+  let username
+  const tree=new Agent({username:'Jerry',dataDir:dir,statusPing:async()=>({version:{protocol:767},players:{sample:[{name:'Marc'}]}}),createBot:options=>{username=options.username;throw new Error('fixture ends at socket creation')}})
+  await assert.rejects(tree.connect(25565),/fixture ends/);assert.equal(username,'Jerry')
+  tree.statusPing=async()=>({version:{protocol:767},players:{sample:[{name:'Jerry'}]}})
+  await assert.rejects(tree.connect(25565),/Jerry is already connected/)
+})

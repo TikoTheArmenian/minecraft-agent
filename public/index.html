@@ -4,12 +4,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Marc · Control room</title>
+    <title>Four bots · Control room</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/icons.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/world.js" defer></script>
     <script src="/activity.js" defer></script>
+    <script src="/storage.js" defer></script>
 </head>
 
 <body>
@@ -17,9 +18,15 @@
         <header>
             <div>
                 <p class="eyebrow">MINECRAFT COMPANION</p>
-                <h1>Marc <span>Control room</span></h1>
-            </div><button id="stop" class="stop">■ Stop all actions</button>
+                <h1>Bot fleet <span>Control room</span></h1>
+            </div><button id="stop" class="stop">Emergency: stop all bots</button>
         </header>
+        <section class="panel"><h2>Your bots</h2><p class="muted" id="fleet-size">Loading the bot list…</p><div id="bot-overview" class="bot-overview"></div></section>
+        <section class="bot-control-bar" aria-label="Selected bot controls">
+            <nav class="bot-tabs" aria-label="Choose bot"></nav>
+            <div class="bot-control-title"><div><h2>Controlling <span id="selected-bot">Marc</span></h2><p id="control-scope">Every control below applies only to Marc.</p></div><button id="start-selected" type="button">Start Marc wheat farming</button><button id="stop-selected" class="stop" type="button">Stop Marc</button></div>
+        </section>
+        <div id="bot-workspace" aria-label="Marc controls">
         <section class="connect">
             <div><span id="status" class="badge" role="status">Disconnected</span>
                 <p id="position">Connect to begin exploring.</p>
@@ -32,15 +39,15 @@
         <p id="error" role="alert" hidden></p>
         <section class="panel activity-panel" aria-label="Bot activity and logs">
             <div class="section-title">
-                <h2>Bot activity</h2>
+                <h2 data-bot-label="{bot} · activity">Bot activity</h2>
                 <div class="activity-badges"><strong id="activity-state">Waiting for controller</strong><span
                         id="activity-mode">Mode unknown</span><span id="activity-heartbeat">Waiting for updates</span>
                 </div>
             </div>
             <p id="activity-summary" class="activity-summary" role="status">Connecting to the controller…</p>
             <p id="activity-timing" class="muted small"></p>
-            <details class="activity-details" open>
-                <summary>Live activity log</summary>
+            <details class="activity-details">
+                <summary data-bot-label="{bot} · live activity log">Marc · live activity log</summary>
                 <div class="log-toolbar"><label>Show<select id="log-filter">
                             <option value="all">All events</option>
                             <option value="problems">Warnings and errors</option>
@@ -59,7 +66,7 @@
                 <div class="section-title">
                     <div>
                         <p class="eyebrow">YOUR WORLD, AT A GLANCE</p>
-                        <h2>Live block map</h2>
+                        <h2 data-bot-label="{bot} · map">Live block map</h2>
                     </div><span id="map-live" role="status">Waiting for world</span>
                 </div>
                 <p class="muted">Click a block to inspect it. Drag across blocks to select a mining area. Use the
@@ -97,9 +104,9 @@
                     screenshot. Hidden or distant chunks may be unknown.</p>
             </section>
             <aside class="world-sidebar">
-                <section class="panel">
+                <section class="panel" id="wheat-panel">
                     <p class="eyebrow">CONTINUOUS PRODUCTION</p>
-                    <h2>FARMER</h2>
+                    <h2 data-bot-label="{bot} · wheat production">Wheat production</h2>
                     <p class="muted">Expand irrigated plots, harvest ripe wheat, replant, and build chests for surplus
                         wheat and seeds.</p><button id="wheat-farm" disabled>Start FARMER</button>
                     <p id="wheat-farm-status" class="muted" role="status">Runs until you press Stop all actions.
@@ -110,9 +117,9 @@
                         while productive, otherwise checks again every 20 seconds.</p>
                 </section>
                 <section class="panel">
-                    <h2>LLM chat</h2>
-                    <p class="muted">Say “Marc, what are you doing?” in Minecraft chat, or whisper to Marc.
-                        Replies use current task, inventory, and nearby observations. Every 30 seconds, OpenAI also posts a brief progress summary; unchanged work gets a short “Still working on…” message.</p>
+                    <h2 data-bot-label="{bot} · AI chat">LLM chat</h2>
+                    <p class="muted">Address the selected bot by its name in Minecraft chat, or whisper to it.
+                        Replies use current task, inventory, and nearby observations. Automatic progress summaries are off.</p>
                     <form id="llm-settings"><label><input id="llm-enabled" type="checkbox"> Enable OpenAI
                             chat</label><label>Model ID<input id="llm-model" value="gpt-6-astra" maxlength="100"
                                 required></label><label>OpenAI API key<input id="llm-key" type="password"
@@ -124,10 +131,7 @@
                 </section>
                 <section class="panel survival-panel">
                     <p class="eyebrow">AUTONOMOUS STARTER ROUTINE</p>
-                    <h2>Run a skill</h2><label for="skill-choice">Skill</label><select id="skill-choice">
-                        <option value="survive">Survive — starter routine</option>
-                        <option value="farmer">FARMER — continuous wheat production</option><option value="get torches">Get torches — gather and craft 16</option>
-                    </select>
+                    <h2 data-bot-label="Start a skill for {bot}">Run a skill</h2><label for="skill-choice">Skill</label><select id="skill-choice"><option value="survive">Loading skills…</option></select>
                     <p id="skill-description" class="muted">Gathers supplies, crafts tools, then expands and harvests a
                         wheat farm toward 128 wheat.</p>
                     <div id="vitals" class="vitals">Connect to see health and hunger.</div>
@@ -142,12 +146,12 @@
                 </section>
                 <section class="panel">
                     <div class="section-title">
-                        <h2>What’s nearby?</h2><button id="survey" class="secondary" disabled>Scan</button>
+                        <h2 data-bot-label="Near {bot}">What’s nearby?</h2><button id="survey" class="secondary" disabled>Scan</button>
                     </div>
                     <p id="survey-at" class="muted small">Resources within 24 blocks of Marc.</p>
                     <div id="resource-cards" class="resource-cards"></div>
                     <p id="nearby-threats" class="muted"></p>
-                    <h2 class="inventory-heading">Inventory</h2>
+                    <h2 class="inventory-heading" data-bot-label="{bot} · inventory">Inventory</h2>
                     <div id="inventory-chips" class="inventory-chips"><span class="muted">Waiting for world.</span>
                     </div>
                 </section>
@@ -158,7 +162,7 @@
             <div class="layout">
                 <section class="panel conversation">
                     <div class="section-title">
-                        <h2>Talk to your bot</h2><span>Local commands</span>
+                        <h2 data-bot-label="Send a command to {bot}">Talk to your bot</h2><span>Local commands</span>
                     </div>
                     <p class="muted">Try “survive”, “look around”, or a specific skill.</p>
                     <div id="messages" role="log" aria-label="Bot conversation" aria-live="polite" tabindex="0"></div>
@@ -172,7 +176,7 @@
                 <aside>
                     <section class="panel current-inventory">
                         <div class="section-title">
-                            <h2>Current inventory</h2><span id="inventory-summary" role="status">Waiting for
+                            <h2 data-bot-label="{bot} · full inventory">Current inventory</h2><span id="inventory-summary" role="status">Waiting for
                                 world</span>
                         </div>
                         <p id="held-tool" class="muted">Connect to see the equipped item.</p>
@@ -182,7 +186,7 @@
                             inventory for each block.</p>
                     </section>
                     <section class="panel">
-                        <h2>Saved places</h2>
+                        <h2 data-bot-label="{bot} · saved places">Saved places</h2>
                         <p class="muted">Save the bot’s current location. Places belong to this world label and
                             dimension.</p>
                         <form id="save"><label class="sr" for="place">Place name</label><input id="place"
@@ -192,11 +196,31 @@
                 </aside>
             </div>
 
+            <section class="panel" aria-labelledby="storage-heading">
+                <h2 id="storage-heading">Shared storage and crafting</h2>
+                <p id="storage-status" role="status">Refresh to check Supabase storage.</p>
+                <div class="actions"><button id="storage-refresh" type="button">Refresh stock</button>
+                    <button id="storage-scan" type="button">Inspect nearby chests</button>
+                    <button id="storage-store" type="button">Store surplus</button>
+                    <button id="storage-organize" type="button">Organize managed chests</button></div>
+                <p class="muted">Only enrolled chests are changed. Stock is a dated observation; bots recheck before transferring. Use “create storage wood” in commands to build a new category chest.</p>
+                <form id="storage-enroll"><label>Chest X <input name="x" type="number" required></label>
+                    <label>Y <input name="y" type="number" min="-64" max="319" required></label>
+                    <label>Z <input name="z" type="number" required></label>
+                    <label>Purpose <select name="category"><option>wood</option><option>tools</option><option>building</option><option>food</option><option>materials</option><option>overflow</option></select></label>
+                    <button>Enroll chest</button></form>
+                <form id="storage-craft"><label>Item <input name="item" placeholder="stone_pickaxe" pattern="[a-z_]+" required></label>
+                    <label>Quantity <input name="quantity" type="number" min="1" max="128" value="1" required></label>
+                    <button>Queue crafting job</button></form>
+                <p class="muted">Start Storage and Crafting on either bot to process queued jobs.</p>
+                <label>Filter stock <input id="storage-filter" placeholder="iron_ingot"></label>
+                <div id="storage-stock"></div><div id="storage-jobs"></div>
+            </section>
             <section class="skills">
                 <section class="panel">
                     <h2>Mine blocks</h2>
                     <p class="muted">Search loaded terrain and mine up to the requested count. Uses suitable tools from
-                        Marc’s inventory.</p>
+                        the selected bot’s inventory.</p>
                     <form id="mine-type"><label>Block<input name="block" value="stone"
                                 required></label><label>Count<input name="count" type="number" min="1" max="128"
                                 value="16" required></label><label>Radius<input name="radius" type="number" min="1"
@@ -267,6 +291,7 @@
         </details>
         <footer>Java 1.21.1 · Open your world to LAN before connecting. Quit the Terminal bot first if Marc is
             already playing.</footer>
+    </div>
     </main>
 </body>
 

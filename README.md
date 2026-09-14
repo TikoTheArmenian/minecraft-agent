@@ -1,4 +1,6 @@
-# WalkBot web control room
+# Marc and Jerry web control room
+
+Want to understand the implementation? Start with [the code walkthrough](docs/CODE-GUIDE.md).
 
 Start the web app by double-clicking **Start Web App.command**, or run:
 
@@ -355,3 +357,136 @@ Oxygen readings now come only from WalkBot's own entity metadata, correcting Min
 Send `get torches` or select **Get torches** in the skill card to gather/craft 16 torches. It uses existing torch stock first, crafts from coal or charcoal plus sticks, gathers exposed coal if needed, and can build/use an empty furnace to make charcoal from logs and plank fuel. Occupied furnaces are left alone.
 
 FARMER prioritizes stocking eight torches when it has fewer than four, then places up to four torches per pass on clear solid ground near crops and work areas. Existing lights prevent closely repeated placements; crops and water are preserved. If materials or a route are unavailable, it reports the blocker and waits five minutes before trying to obtain more, allowing farm work to continue. No additional packages are needed.
+
+### Two bots and continuous tree farming
+
+The control room now runs **Marc** and **Jerry** as independent Minecraft sessions.
+The two cards show both bots' status and provide Connect, Start, Stop and Manage controls.
+**Manage** selects that bot's map, inventory, conversation, logs and other commands.
+**Stop both bots** cancels both tasks. Each bot has its own connection and can disconnect
+without stopping the other. Jerry's saved settings and logs live in `data/treebot/`.
+
+Connect both using the same LAN settings. Start wheat farming on Marc and **Start tree
+farmer** on Jerry, or select Jerry and send `farm trees`. Both require Survival mode.
+Jerry searches loaded terrain within 48 blocks (and 80 blocks of its starting position).
+It supports oak, birch, spruce, jungle, acacia, dark oak and cherry trees rooted in ordinary
+planting soil with a natural leaf canopy. It captures connected logs, including diagonal
+branches, before cutting. Connected clusters are limited to 256 logs, 40 blocks vertically,
+and 12 blocks horizontally from the discovered root; oversized/unloaded trees are refused.
+Mangroves and Nether fungi are not supported yet.
+
+Jerry collects matching saplings from drops/leaves and reserves enough to replant every
+trunk base before cutting. It gathers exposed dirt away from planting soil and nearby
+farmland, prioritizing a reserve of 32 dirt between trees. It mines from the base upward,
+then jump-places dirt in the cleared trunk to reach higher logs. Branches can use supported
+stairs when necessary. Temporary supports are recorded in the saved job and recovered in
+reverse order before replanting; descending through a column requires solid ground exactly
+one block below each removed support. Routes may clear natural leaves but cannot mine
+unrelated terrain. Jerry’s status card shows its carried dirt against the reserve target.
+It harvests the connected logs, returns to the planting sites, and verifies matching sapling
+placements; dark oak requires its 2 × 2 footprint. Leaves may decay naturally afterward.
+
+A tree counts as complete only when all captured logs are gone and its roots replanted.
+Unfinished trees are retained across Stop/restart in `tree-jobs.json`, scoped by world label
+and dimension. Missing saplings, a full inventory, or an inaccessible branch are reported;
+the bot retries temporary obstructions after 1.5 seconds and checks for new trees every
+10 seconds. Three unchanged failures pause the saved job for attention. Empty its inventory
+when full; this skill does not automatically store logs in chests. Navigation/action timeouts
+and dangerous conditions pause work. Reuse the world label only for the same world.
+
+Validation covers whole-tree discovery and harvesting, diagonal branches, partial retries,
+planting reserves, cancellation, stair movement configuration, and isolated multi-bot APIs.
+Live connection and UI switching were checked with both bots; a complete live tall-tree
+harvest still needs suitable nearby terrain and planting stock.
+
+### Clear bot controls and canopy recovery
+
+A sticky **Controlling Marc / Controlling Jerry** bar identifies the active bot throughout
+the page. Start, Stop, Connect, map actions, commands and settings name their target. The
+selection survives refresh. Switching clears the map selection and command draft and disables
+stale controls while the selected session loads. The map follows the selected bot by default;
+its label states both the viewed entity and the bot receiving commands. Jerry hides the
+unrelated wheat-production card, and activity logs are collapsed initially.
+
+Jerry checks reach from its actual eye position, fixing a case where the cell-center ray
+was blocked by leaves despite a clear real view. For taller canopies, it builds and confirms
+one supported step at a time, then replans using those actual blocks. This avoids the
+pathfinder's inability to model all previous hypothetical staircase supports. It steps back
+before replanting when standing in the sapling's placement space. Three attempts with no
+harvest/replant progress pause the task with its unfinished tree saved instead of repeating
+an identical failure forever. Restart tree farming after resolving the reported blocker.
+
+Regression tests include captured terrain from both birch trees: the offset standing position
+and a real movement/physics simulation that places six support blocks to reach the upper log.
+
+The two saved birch-tree jobs were also verified live: all captured logs were removed and
+matching saplings were confirmed before the jobs were cleared. Canopy work now releases
+movement and waits for a stable landing before clearing leaves or placing the next support.
+
+### Shared Storage and Crafting (Supabase)
+
+The new skill shares inspected chest contents and durable crafting jobs across bots through
+Supabase Postgres. It provides explicit chest enrollment, category organization, surplus deposits,
+working-stock reserves, ingredient reservations and verified crafting. Marc uses shared farm
+storage when configured; the tree farmer can unload into enrolled wood/overflow chests.
+
+Read [setup, commands and recovery](docs/STORAGE-SETUP.md) and the
+[revised implementation plan](docs/STORAGE-AND-CRAFTING-PLAN.md). Configure the intended Supabase
+project before using shared storage. Existing standalone skills still work without configuration.
+The first version is bounded to local reachable storage and does not yet implement fleet-wide
+resource claims, automatic warehouse layout or general world exploration.
+
+### Practice movement
+
+Select either bot, choose **Practice movement — follow sponge**, and press Start,
+or send `practice-movement` (`practice movement` also works). The continuous skill
+scans loaded terrain within 64 blocks for the nearest sponge or wet sponge, then
+moves beside or onto it using the usual movement system. It leaves the marker in
+place, watches for changed targets, and waits when no sponge is nearby. Move or
+remove the current sponge to direct the next trip. **Stop** cancels the selected
+bot’s skill. Like the other continuous skills, it currently starts in Survival mode.
+
+### Sam: dedicated Storage and Crafting bot
+
+Sam is the fourth independent bot, alongside Marc, Jerry and Barneett. Choose **Control Sam**
+to connect him and start his default **Storage and Crafting** skill. He uses the same Supabase
+world registry, managed chests and crafting queue as the other bots, with separate local data
+and logs in `data/sam/`. Use the same world label when connecting the fleet.
+
+Long walks use weighted A* (2× the destination heuristic once the remaining
+heuristic distance is at least 24 blocks). This favors a usable route over the
+shortest possible route without changing allowed movement or hazard checks.
+When a search times out with a useful route, the bot walks that existing segment
+before planning the next section, avoiding a duplicate search to its endpoint.
+
+Walking can open hand-operated doors (wooden and copper) and fence gates, waiting
+for server confirmation before crossing. It leaves already-open passages open;
+closed iron doors require an external redstone mechanism. Navigation treats fence
+and wall tops at their actual collision height: no ground-level fence jumps, but
+walking along the top is supported from a raised approach with enough headroom.
+Doors, gates, fences and walls are protected from automatic pathfinding digging.
+
+### Start and switch skills from chat
+
+In Minecraft chat, address the bot by name, or whisper the command directly:
+
+- `Marc, start farmer`
+- `Jerry, switch to practice movement`
+- `Sam, start storage and crafting`
+- `Jerry, turn on` — start the last skill requested this controller session, or his default tree farmer skill.
+- `Jerry, stop` — cancel the running skill and any pending switch.
+- `Marc, skills` — list available skills.
+
+These commands also work in the web conversation. Without a name, web commands target
+the selected bot; whispers target their recipient. Available skills are Survive, FARMER,
+Tree farmer, Get torches, Storage and Crafting, and Practice movement. `start <skill>`,
+`switch to <skill>`, and the existing bare skill commands start or switch skills. A switch
+cancels current work and waits for its active action to settle before starting the replacement.
+A newer switch replaces any pending one. Each bot stays independent.
+
+Skill commands work with LLM chat disabled and require no API key. The bot must already be
+connected and in Survival mode; `turn on` starts its skill, not its Minecraft connection.
+Bare `start` / `turn on` defaults to FARMER for Marc, Tree farmer for Jerry, Practice movement
+for Barneett, and Storage and Crafting for Sam. Ordinary conversation still uses the optional
+LLM configuration. Public commands must begin with the bot's name; other bots' messages
+cannot trigger skill controls.

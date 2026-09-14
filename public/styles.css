@@ -7,3 +7,35 @@
 .activity-panel{margin-bottom:20px}.activity-badges{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:11px}.activity-badges>*{background:#111b14;border:1px solid #3b5035;padding:6px 9px;border-radius:5px}.activity-badges .idle{color:#c9ed9f}.activity-badges .running{color:#f2d598}.activity-badges .offline{color:#f0a693}.activity-summary{font-size:14px;line-height:1.65;margin:16px 0 8px;color:#dfebd5}.activity-details{margin-top:14px;padding-top:12px}.log-toolbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:14px 0}.log-toolbar label{display:flex;align-items:center;gap:8px}.log-follow input{width:auto}.log-download{color:#c7e3ab;font-size:12px;margin-left:auto}#activity-log{height:190px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;background:#101811;border:1px solid #33442e;border-radius:7px;padding:10px;font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px;line-height:1.7}.log-entry{display:grid;grid-template-columns:85px 42px minmax(0,1fr);gap:8px;padding:5px 2px;border-bottom:1px solid #202e21}.log-entry time{color:#7f9877}.log-entry>span:last-child{overflow-wrap:anywhere;white-space:pre-wrap}.log-entry .log-level{color:#a7c28f;font-size:9px}.log-entry.warn,.log-entry.warn .log-level{color:#e7bc7b}.log-entry.error,.log-entry.error .log-level{color:#f1a291}.log-entry.debug{color:#8c9d86}#activity-log:focus-visible{outline:2px solid #a8d884;outline-offset:3px}.survive-gate{padding:14px;border:1px solid #98704a;border-radius:8px;background:#30251b;color:#f2d4aa;font-size:13px;line-height:1.7;overflow-wrap:anywhere}.survive-gate.ready{background:#213420;border-color:#617f4a;color:#d2ecb6}#survive:disabled{cursor:not-allowed;opacity:.7}#log-error{color:#f1a291;font-size:12px}#log-file{overflow-wrap:anywhere}.activity-details .small{line-height:1.9}@media(max-width:600px){.log-entry{grid-template-columns:72px 36px minmax(0,1fr);gap:5px;font-size:10px}.log-toolbar{gap:10px}.log-download{margin-left:0}.activity-panel{padding:16px}}
 .item-icon{--s:32px;position:relative;display:inline-grid;place-items:center;width:var(--s);height:var(--s);flex-shrink:0;vertical-align:middle}.item-icon.missing{background:#1b261d;border:1px solid #3a4b3b;border-radius:4px;font-size:9px;font-weight:600;letter-spacing:.5px;color:#9ab48f}.item-icon.pending{background:#16201a;border-radius:4px}.item-icon .face{position:absolute;background-image:var(--img);background-size:100% auto;background-repeat:no-repeat;background-position:0 0;image-rendering:pixelated;backface-visibility:hidden}.item-icon .face.tinted::after{content:'';position:absolute;inset:0;background:var(--tint);mix-blend-mode:multiply;-webkit-mask-image:var(--img);mask-image:var(--img);-webkit-mask-size:100% auto;mask-size:100% auto;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}.item-icon.flat .face{inset:0}.item-icon .cube{--w:1;--h:1;--d:1;position:relative;width:var(--s);height:var(--s);transform-style:preserve-3d;transform:scale(.64) rotateX(-30deg) rotateY(-45deg)}.item-icon .cube .face{left:50%;top:50%}.item-icon .cube .top{width:calc(var(--s)*var(--w));height:calc(var(--s)*var(--d));margin:calc(var(--s)*var(--d)/-2) 0 0 calc(var(--s)*var(--w)/-2);transform:rotateX(90deg) translateZ(calc(var(--s)*var(--h)/2))}.item-icon .cube .front{width:calc(var(--s)*var(--w));height:calc(var(--s)*var(--h));margin:calc(var(--s)*var(--h)/-2) 0 0 calc(var(--s)*var(--w)/-2);transform:translateZ(calc(var(--s)*var(--d)/2));filter:brightness(.82)}.item-icon .cube .right{width:calc(var(--s)*var(--d));height:calc(var(--s)*var(--h));margin:calc(var(--s)*var(--h)/-2) 0 0 calc(var(--s)*var(--d)/-2);transform:rotateY(90deg) translateZ(calc(var(--s)*var(--w)/2));filter:brightness(.62)}.inventory-chip{display:inline-flex;align-items:center;gap:7px}.inventory-chip .item-icon{--s:20px}.inventory-chip.equipped{border-color:#80a555}.inventory-row .item-icon{--s:34px;margin-right:2px}.inventory-row>div{flex:1;min-width:0}#held-tool{display:flex;align-items:center;gap:8px}#held-tool .item-icon{--s:22px}
 .item-icon .face canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+
+.bot-overview { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+.bot-card { border:1px solid #52604c; border-radius:12px; padding:16px; min-width:0; }
+.bot-card.selected { border:2px solid #b6db85; }
+.bot-card p { overflow-wrap:anywhere; }
+.bot-controls { display:flex; gap:8px; flex-wrap:wrap; }
+@media(max-width:700px) { .bot-overview { grid-template-columns:1fr; } }
+
+[hidden] { display:none !important; }
+.bot-control-bar { position:sticky; top:0; z-index:20; background:#1b291f; border:2px solid #b6db85; padding:12px 16px; border-radius:12px; margin:20px 0 16px; box-shadow:0 6px 20px #0008; }
+body[data-bot="tree"] .bot-control-bar { border-color:#7bceeb; background:#142b32; }
+.bot-tabs { display:flex; gap:8px; margin-bottom:10px; }
+.bot-tabs button { flex:1; background:transparent; color:#c3d0bc; border:1px solid #596c55; }
+.bot-tabs button[aria-pressed="true"] { background:#b6db85; color:#142116; border-color:#b6db85; }
+body[data-bot="tree"] .bot-tabs button[aria-pressed="true"] { background:#7bceeb; border-color:#7bceeb; }
+.bot-control-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.bot-control-title h2 { margin:0; font-size:22px; }
+#control-scope { margin:5px 0 0; font-size:12px; color:#c3d0bc; }
+.bot-card .fleet-stop { margin-left:8px; }
+#bot-workspace[inert] { opacity:.45; }
+@media(max-width:600px) { .bot-control-title h2 { font-size:18px; } .bot-control-bar { padding:10px; } #control-scope { font-size:11px; } }
+
+.bot-control-title { flex-wrap:wrap; }
+.bot-control-title>div { flex:1 1 220px; }
+#start-selected,#stop-selected { flex:0 1 auto; }
+#llm-settings { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+#llm-settings input:not([type=checkbox]) { width:100%; min-width:0; }
+#llm-settings button { width:100%; }
+
+body[data-bot="barneett"] .bot-control-bar { border-color:#c9a3ef; background:#292038; }
+body[data-bot="barneett"] .bot-tabs button[aria-pressed="true"] { background:#c9a3ef; border-color:#c9a3ef; }
+.bot-tabs { flex-wrap:wrap; }
