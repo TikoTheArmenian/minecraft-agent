@@ -493,7 +493,7 @@ async function refreshFleet() {
         ? `Health ${s.vitals.health}/20 · Food ${s.vitals.food}/20`
         : 'Disconnected'
       card.querySelector('.fleet-counts').textContent = s.treeFarm
-        ? `${s.treeFarm.trees} full trees · ${s.treeFarm.logs} logs · ${s.treeFarm.planted} replanted · ${s.treeFarm.remaining} remaining · Dirt ${(s.inventory || []).filter(i => i.name === 'dirt').reduce((n, i) => n + i.count, 0)}/32 reserve`
+        ? `${s.treeFarm.trees} full trees · ${s.treeFarm.logs} logs · ${s.treeFarm.planted} replanted · ${s.treeFarm.remaining} remaining · Dirt ${(s.inventory || []).filter(i => i.name === 'dirt').reduce((n, i) => n + i.count, 0)}/128 reserve`
         : s.wheatFarm
           ? `${s.wheatFarm.plots} wheat plants · ${s.wheatFarm.stored} wheat stored`
           : s.storage?.configured
@@ -535,7 +535,7 @@ $('#mine-area').onsubmit = (e) => {
     `mine area ${d.get('x1')} ${d.get('y1')} ${d.get('z1')} to ${d.get('x2')} ${d.get('y2')} ${d.get('z2')}`,
   )
 }
-$('#mine-area').oninput = (e) => {
+$('#mine-area').oninput = () => {
   const d = new FormData($('#mine-area'))
   const names = ['x1', 'y1', 'z1', 'x2', 'y2', 'z2']
   if (names.some((k) => d.get(k) === '')) {

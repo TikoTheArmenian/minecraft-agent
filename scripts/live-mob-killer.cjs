@@ -18,10 +18,10 @@
  */
 const path = require('node:path')
 const { Vec3 } = require('vec3')
-const { Agent } = require('../src/agent.cjs')
-const { Colony } = require('../src/colony.cjs')
-const { profiles, publicProfile } = require('../src/fleet.cjs')
-const { HOSTILES } = require('../src/world.cjs')
+const { Agent } = require('../src/agents/agent.cjs')
+const { Colony } = require('../src/storage/colony.cjs')
+const { profiles, publicProfile } = require('../src/agents/fleet.cjs')
+const { HOSTILES } = require('../src/world/observations.cjs')
 
 function args() {
   const out = { bot: 'knight', pre: [], post: [], seconds: 120, world: 'Agent Playground', spot: null }

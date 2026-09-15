@@ -1,6 +1,6 @@
 # Mob killer (Knight)
 
-`src/mob-killer.cjs` · class `MobKiller extends Survival` · fleet id `knight` · task label `MOB KILLER`.
+`src/skills/mob-killer.cjs` · class `MobKiller extends Survival` · fleet id `knight` · task label `MOB KILLER`.
 
 ## Commands
 
@@ -16,7 +16,7 @@ throws a clear error for an out-of-range radius. The bot's position when the ski
    message naming the bot. A nearby hostile is never a reason to stop: `safety()` is overridden.
 2. **Creepers.** Never meleed. If one is within 6 blocks the bot backs off 8 blocks (toward the post
    when that leads away from the creeper) and re-evaluates.
-3. **Pick a target.** Nearest entity whose `name` is in `HOSTILES` (`src/world.cjs`), not a creeper,
+3. **Pick a target.** Nearest entity whose `name` is in `HOSTILES` (`src/world/observations.cjs`), not a creeper,
    alive, not on cooldown, within `radius` of the post. Anything with `type === 'player'` or a
    `username`, villagers, iron golems, wolves and passive animals are never eligible.
 4. **Arm.** Best carried melee weapon by tier (netherite > diamond > iron > stone > golden > wooden),

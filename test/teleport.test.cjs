@@ -1,8 +1,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { fixture, Vec3 } = require('./helpers/survival-fixture.cjs')
-const { installTeleportHandling } = require('../src/teleport.cjs')
-const { watchBlock } = require('../src/block-updates.cjs')
+const { installTeleportHandling } = require('../src/minecraft/teleport.cjs')
+const { watchBlock } = require('../src/minecraft/block-updates.cjs')
 
 function setup() {
   const f = fixture()

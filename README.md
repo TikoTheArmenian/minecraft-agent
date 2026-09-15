@@ -1,37 +1,77 @@
-# Minecraft bot fleet
+# Minecraft Agent
 
-A local web control room for a team of [Mineflayer](https://github.com/PrismarineJS/mineflayer) bots in **Minecraft Java Edition 1.21.1**.
+**A local control room for a team of Minecraft bots.**
 
-Open a singleplayer world to LAN, connect the bots from your browser, and send them to farm, mine, terraform, craft, and talk. Each bot is an independent Minecraft player with its own inventory, logs, and default job. Skills are rule-based routines — not an open-ended AI that invents new behavior.
+Minecraft Agent brings a small crew of automated players into your Minecraft Java world. Give them jobs—growing wheat, gathering wood, finding ore, running furnaces, or organizing shared supplies—and watch their progress from a browser. Each bot has its own inventory, activity history, and assignment, so you can run one helper or coordinate a whole fleet around your base.
 
-The controller runs on your machine and listens only on localhost. Optional OpenAI chat and optional Supabase storage can be added later.
+The project uses [Mineflayer](https://github.com/PrismarineJS/mineflayer) to connect bots as Minecraft players. The web controller runs on your computer and connects to a local world opened to LAN; no Minecraft mod or frontend build is required. The included fleet has nine bots, and custom profiles can define their names, default jobs, and available skills.
 
-Want to change the code? Start with the [architecture walkthrough](docs/CODE-GUIDE.md).
+You choose how much automation to use:
+
+- **Direct control:** start tested, rule-based skills and issue movement, mining, and farming commands. No API key is required.
+- **Optional AI chat:** ask a bot about its work and surroundings. These replies are informational.
+- **Optional AI supervisors:** give individual bots objectives and let a model choose among registered skills. Shadow mode lets you inspect decisions before enabling autonomous execution.
+- **Optional shared storage:** connect Supabase so bots can coordinate managed chests and crafting jobs.
+
+This is an experimental automation project. Bots act in the world: they break and place blocks, use supplies, and can die. Begin in a test world or a backed-up save, and keep the activity log visible while you learn how a skill behaves.
+
+## Contents
+
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [The control room](#the-control-room)
+- [The fleet](#the-fleet)
+- [Skills](#skills)
+- [Chat and commands](#chat-and-commands)
+- [How the bots move](#how-the-bots-move)
+- [Configuration](#configuration)
+- [AI chat and supervisors](#ai-chat-and-supervisors)
+- [Shared storage](#optional-shared-storage)
+- [API costs](#api-costs)
+- [Troubleshooting](#troubleshooting)
+- [Development and documentation](#development-and-documentation)
+- [Contributing](#contributing)
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) 22 or newer
+- [Node.js](https://nodejs.org/) **22.13.0 or newer**, with npm (the controller uses Node’s built-in SQLite)
 - Minecraft Java Edition **1.21.1** (the version Mineflayer joins)
-- A singleplayer world opened to LAN
+- A singleplayer world opened to LAN **on the same computer as the controller**
 - Commands enabled in that world (`/gamemode`, `/tp`)
 - A normal terrain world for gathering and farming. Superflat Creative voids will not supply trees, stone, or food.
 
-The bots join as offline LAN players. They do not use your Minecraft account unless you later connect them to an online server.
+The web fleet joins as offline LAN players at `127.0.0.1`, using Minecraft protocol version `1.21.1`. Bedrock Edition is not supported by this controller. Microsoft authentication for the separate terminal demo is described under [Online servers](#online-servers).
 
 ## Quick start
 
+### 1. Download and start the controller
+
 ```sh
-npm install
+git clone https://github.com/TikoTheArmenian/minecraft-agent.git
+cd minecraft-agent
+npm ci
 npm run web
 ```
 
+You do not need an `.env` file for direct control. Leave optional services unconfigured for your first session.
+
 On macOS you can also double-click **Start Web App.command**. Keep that Terminal window open.
 
-1. Open **http://127.0.0.1:4317**.
+### 2. Connect your first bot
+
+1. Open [the control room](http://127.0.0.1:4317).
 2. In Minecraft: **Esc → Open to LAN**. Prefer **Survival** as the joining game mode so the bots do not reset to Creative on reconnect. Leave **Allow Commands** on.
-3. In the control room, pick a bot tab, keep a stable **world label** for that save, and click **Connect bot**. Leave the LAN port blank to read it from the latest game log, or type the port Minecraft shows.
+3. In the control room, pick a bot tab, enter a stable **world label** for that save and the LAN port Minecraft shows in chat, then click **Connect bot**. The port can change each time you reopen the world to LAN.
 4. Put the bot in Survival if needed: `/gamemode survival Marc` (or that bot’s name). You can stay in Creative yourself.
 5. Press **Start** for the bot’s default skill, or choose another skill and start it.
+
+For a simple first check, type `where are you`, then `look around` in the selected bot’s web conversation. The dashboard should show its position, health, and nearby blocks. Start one skill and watch the activity log before connecting more bots.
+
+**Port auto-detection:** leaving the port blank only works when your Minecraft installation writes its log to `~/minecraft-agent-worlds/logs/latest.log`. Standard launcher installations should enter the port manually.
+
+### 3. Stop and return later
+
+Use **Stop** to cancel a bot’s work, or **Emergency: stop all bots** for the fleet. To close the controller, press `Ctrl+C` in its terminal; this disconnects the bots.
 
 Refreshing the page keeps the same bot sessions. Use the same world label when you reopen the same save, and a different label for a new world — saved places, unfinished jobs, and shared storage are grouped by that label.
 
@@ -122,7 +162,7 @@ Marc, stop
 Marc, skills
 ```
 
-Skill commands work with no API key. Public in-game commands must start with the bot’s name so other players cannot steer them.
+Skill commands work with no API key. Public in-game commands must start with the bot’s name to select their recipient. This is routing, not player authentication: another player can address a bot too. Use the fleet in worlds with players you trust.
 
 ### Everyday commands
 
@@ -150,7 +190,7 @@ The map, search form, saved-place buttons, and Stop button issue the same comman
 | `farm carrots 16` / `farm potatoes 16` / `farm beetroot 16` | Harvest ripe crops and replant |
 | `farm all 16` | Tend all four crops |
 
-Type mining defaults to 16 blocks (max 128) and a radius of 64. The bot picks the fastest suitable tool it already has. Give it tools first — individual mine/farm commands do not craft them. Survive and the production skills can make or fetch their own.
+Type mining defaults to 16 blocks (max 128) and a radius of 32 (max 64). The bot picks the fastest suitable tool it already has. Give it tools first — individual mine/farm commands do not craft them. Survive and the production skills can make or fetch their own.
 
 Area corners can be in either order, both within 64 blocks of the bot. Unbreakable blocks, liquids, unloaded cells, and unreachable targets are reported, not marked cleared. The bot will not dig access tunnels outside your selection.
 
@@ -189,13 +229,55 @@ They will not dig a path to the destination, sprint-jump, use iron doors, or wal
 
 Close hostiles, critical health, or low air pause most skills so you can help. Knight is the exception: it fights inside its patrol, then retreats and eats. None of the skills are a guarantee the bot stays alive.
 
-## Optional: talk to the bots
+## Configuration
 
-Copy `.env.example` to `.env` and set `OPENAI_API_KEY`. Restart `npm run web`. The key stays on the server; the browser never sees it. Usage is billed to your OpenAI account. The **API costs** panel estimates spend from recorded tokens.
+For optional integrations, copy the example once, then edit `.env` locally:
 
-With chat enabled, `Marc, what are you doing?` in Minecraft chat or a whisper gets a reply about the current task, inventory, and nearby observations. Replies are informational only: the model cannot move the bot or run commands. Mentions and whispers still work. Every 30 seconds the bot can also post a short `[Update]` while it is working.
+```sh
+cp .env.example .env
+```
 
-Turn replies on or off per bot in the **LLM chat** card. Per-bot `llm.json` files store that preference, never the key. Skill commands work with chat disabled.
+Keep only the settings you use. If you only want AI features, leave the Supabase values empty or remove their placeholder lines; partially configured storage can block shared operations. Restart the controller after changing environment settings. Existing environment variables take precedence over `.env`.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | Enables optional chat and supervisor requests. Keep it on the server. |
+| `SUPERVISOR_MODEL` | Default supervisor model; profiles can override it. Choose a model available to your API account. |
+| `SUPABASE_URL` | Project URL for shared storage and crafting. Configure with the secret key. |
+| `SUPABASE_SECRET_KEY` | Backend Supabase key; never put it in browser code. |
+| `BOT_PROFILES_FILE` | Path to a JSON array replacing the built-in fleet. See [custom profiles](docs/AGENT-RUNTIME.md#profiles-and-adding-bots). |
+| `MINECRAFT_JAR` | Optional path to the installed Minecraft 1.21.1 client jar for local icon extraction. |
+
+Local settings, `.env`, `.auth/`, generated textures, and `data/` are gitignored. Bot profiles may customize data directories; keep those directories private as well.
+
+### Saved data
+
+Each bot stores logs, preferences, saved places, and skill/runtime records in its own data directory. Marc defaults to `data/`; the other built-in bots use subdirectories. The fleet shares `data/api-costs.sqlite` and `data/supervisor-usage.json` for cost history and supervisor usage limits.
+
+Use a stable world label for each save and the same label across its bots. Keep different saves under different labels. Stop the controller before backing up the complete `data/` directory. Supabase-backed storage records need a separate database backup.
+
+## AI chat and supervisors
+
+Both features use `OPENAI_API_KEY` and can incur charges on your API account. They are independent of direct skill commands, which work without a key. Requests include relevant bot context, such as objectives, inventory, nearby observations, or messages, depending on the feature.
+
+### Informational chat
+
+Enable replies per bot in the **LLM chat** card, then ask `Marc, what are you doing?` in Minecraft chat or a whisper. Replies describe the bot’s current work and observations; chat replies cannot execute commands. Automatic periodic summaries are disabled. Per-bot `llm.json` files save the reply preference, never the API key.
+
+### Objective-driven supervisors
+
+Each bot has a separate **Supervisor** panel, objective, skill runner, and inbox. The supervisor can select registered skills, request a switch, stop its own work, message peers through Minecraft, or wait. Physical work still runs through the deterministic skill runtime and its validation and cancellation checks.
+
+1. Connect a bot and enter a small, concrete objective, such as making eight glass.
+2. Choose a model available to your API account.
+3. Choose **Shadow** to record proposals without executing them, or **Autonomous** to execute decisions. Shadow mode still makes model requests.
+4. **Save**, then **Resume**. Saving pauses decisions; a controller restart always leaves supervisors paused.
+
+**Pause** stops new decisions. **Stop** also cancels physical work and pending switches. Manual skill assignments pause autonomous control.
+
+Chat controls include `Marc, goal: Make eight glass`, `Marc, supervisor shadow`, and `Marc, supervisor resume`. Use `supervisor autonomous` to select execution mode.
+
+Request and token caps limit supervisor admission separately from the dollar-cost dashboard. See the [runtime guide](docs/AGENT-RUNTIME.md) for budgets, custom profiles, structured APIs, interruption recovery, and a staged live pilot.
 
 ## Optional: shared storage
 
@@ -205,9 +287,9 @@ Use the same world label for the whole fleet. Apply the SQL in `supabase/migrati
 
 ## Online servers
 
-After the local LAN demo works, you can point a bot at a server you have permission to use. Put `host`, `port`, your account email as `username`, `auth: "microsoft"`, and `version: false` in `config.json`, then run `node bot.cjs` and complete Microsoft device sign-in. The account must own Java Edition. Disconnect your regular client first if it is the same account. Never put a password in the file.
+After the local LAN demo works, you can point a bot at a server you have permission to use. Copy `config.example.json` to `config.json`, set `host`, `port`, your account email as `username`, `auth: "microsoft"`, and `version: false`, then run `node bot.cjs` and complete Microsoft device sign-in. The account must own Java Edition. Disconnect your regular client first if it is the same account. Never put a password in the file.
 
-`config.json` and `.auth/` are gitignored. Do not share the authentication cache. The Terminal movement demo (`npm start`) is separate from the web control room.
+`config.json` and `.auth/` are gitignored. Do not share the authentication cache. The terminal movement demo (`npm start`) is separate from the web control room. These settings do not reconfigure the web fleet’s localhost-only connection.
 
 ## Limits worth knowing
 
@@ -218,80 +300,85 @@ After the local LAN demo works, you can point a bot at a server you have permiss
 - Exchange, mining, and farming are bounded jobs. They are not a world-wide planner.
 - The web app binds to this computer only. Saved places live in gitignored `data/waypoints.json`.
 
-## Develop
+## API costs
 
-```sh
-npm run check   # syntax
-npm test        # simulated movement, skills, and API tests
-```
+The **API costs** panel shows estimated OpenAI spending for the project or an individual bot. Filter by UTC dates, inspect model and daily breakdowns, and download the filtered history as CSV. Estimates use recorded usage and local rate cards; unknown usage or unsupported pricing stays visibly unknown. Update `src/infra/api-pricing.cjs` when pricing or model configuration changes.
 
-These tests do not open a live Minecraft connection.
+Daily and monthly dollar alerts are **notifications, not spending caps**. The supervisor’s request/token limits are enforced separately. Supabase requests are attributed to bots, but Supabase compute, storage, and egress charges are billed separately. The dashboard does not reconstruct earlier bills or track development usage in Codex.
 
-| Doc | Contents |
+The cost ledger persists in `data/api-costs.sqlite`. It records usage metadata, not API keys or prompt/response text. A monitoring failure is shown in the dashboard and does not stop Minecraft work. For backups, stop the controller first; copying only a live SQLite database can omit writes in its `-wal` file.
+
+## Troubleshooting
+
+| Symptom | What to check |
 | --- | --- |
-| [docs/CODE-GUIDE.md](docs/CODE-GUIDE.md) | How a click becomes a bot action, and which file to read |
-| [skill.md](skill.md) | How to add a skill or a new bot |
-| [docs/STORAGE-SETUP.md](docs/STORAGE-SETUP.md) | Shared chests and crafting |
-| [docs/skills/](docs/skills/) | Per-skill commands and cycles |
+| Bot cannot connect | Open the world to LAN again, enter its current port, and confirm Java Edition 1.21.1 is running on the same computer. |
+| Blank port fails | Auto-detection uses a custom log path; enter the port shown in Minecraft chat. |
+| A skill is unavailable | Connect the bot, set it to Survival with `/gamemode survival <name>`, and read the activity panel’s reason. Some jobs also need materials, an area, or shared storage. |
+| Bot cannot find a resource or reach a target | It only knows loaded terrain. Move it closer, check the route, and inspect the log for missing tools or supplies. |
+| Bot seems stuck | Crafting and digging can take time. Check the current action and timeout, then Stop if needed. Disconnect and reconnect if an action cannot settle. |
+| A run requires recovery review | Inspect the world, inventory, and interrupted operation before following the [runtime recovery guide](docs/AGENT-RUNTIME.md#requests-results-and-recovery). |
+| Supervisor makes no decisions | Check its model, API key, mode, objective, budget, and pause/error state. Save pauses it; press Resume afterward. |
+| Shared storage is blocked | Check both Supabase settings, migrations, world label, enrolled chests, and the reported error in the [storage guide](docs/STORAGE-SETUP.md). |
+| Icons appear as letters | Install the matching client jar or set `MINECRAFT_JAR`, then run `npm run textures`. Missing icons do not block the controller. |
+| Port 4317 is already in use | The controller may already be running. Open the existing dashboard or close the earlier terminal process. |
+| Startup reports unsupported SQLite or Node features | Check `node --version`; use Node 22.13.0 or newer, then run `npm ci` again. |
 
-Try one bot live without the rest of the control room:
+For a useful bug report, include the bot, command, Minecraft and Node versions, expected behavior, and relevant activity-log lines. Review logs before sharing: they may include player names, chat, and world coordinates. Never include `.env` or authentication files.
+
+## Development and documentation
+
+The controller is CommonJS JavaScript. `src/main.cjs` composes the fleet and starts the local HTTP server; `public/` contains the browser UI with no frontend build step.
+
+| Directory | Responsibility |
+| --- | --- |
+| `src/agents/` | Bot identity, profiles, and fleet composition |
+| `src/runtime/`, `src/skills/` | Validated commands, run lifecycle, and executable skills |
+| `src/supervisor/`, `src/messaging/` | Optional model decisions and bot communication |
+| `src/minecraft/`, `src/navigation/`, `src/capabilities/` | Confirmed game actions, travel, and shared resource routines |
+| `src/storage/`, `src/world/`, `src/infra/` | Shared storage, observations, persistence, and cost tracking |
+| `src/web/`, `public/` | HTTP routes and browser controls |
+| `test/`, `supabase/migrations/` | Automated tests and database schema changes |
+
+### Run checks
 
 ```sh
-node --env-file-if-exists=.env scripts/live-skill.cjs --bot orin --command "find ores" --seconds 180
+npm ci
+npm run verify
 ```
 
-`--pre "/give @s stone_pickaxe"` sends chat lines first. The harness prints the activity log, position, inventory, and a JSON summary, then disconnects.
+`verify` runs syntax checks, ESLint, checked input contracts, architecture boundaries, source formatting, and behavior tests. Individual checks are available through `npm run check`, `npm run lint`, `npm run typecheck`, `npm run architecture`, `npm run format:check`, and `npm test`.
 
-The browser UI is static files in `public/`. No frontend build step.
+The behavior tests use simulated Minecraft and provider responses; they need no live world or paid model calls. The PostgreSQL integration test skips locally unless `COLONY_TEST_CONTAINER` identifies a disposable test container. The [CI workflow](.github/workflows/verify.yml) provisions PostgreSQL for that test. Offline tests do not establish live Minecraft or model reliability.
 
-### Project and per-agent API costs
+### Live skill harness
 
-The **API costs** panel above the bot controls tracks the whole project or a named bot.
-Choose today, this month, the last seven days, all tracked history, or custom UTC dates.
-Expand the panel for agent/model breakdowns, daily trends, the last 50 requests, and
-optional daily/monthly budget alerts. **Download CSV** exports the entire filtered history.
-The panel refreshes every ten seconds while in use, including when bots are disconnected.
+With a local world opened to LAN, try a single bot:
 
-OpenAI estimates use the response's actual model, service tier, input/cache-read/cache-write
-and output usage. Reasoning tokens are already included in output, so they are not added
-again. GPT-5.6 Luna rates were checked against [official OpenAI pricing](https://developers.openai.com/api/docs/pricing)
-on September 14, 2026; the rate card also handles Fast/Flex tiers and the model's long-context
-threshold. See [prompt cache accounting](https://developers.openai.com/api/docs/guides/prompt-caching).
-Every priced request retains its rate snapshot. Prices are estimates, not provider invoice
-reconciliation; negotiated rates, credits, taxes, and external usage are not included.
-Update `src/api-pricing.cjs` when provider rates or the configured model change. A dated
-model ID or unknown service tier is left unpriced rather than matched to a guessed rate.
-The panel flags rate cards older than 90 days.
+```sh
+node --env-file-if-exists=.env scripts/live-skill.cjs --bot orin --port 51234 --command "find ores" --seconds 180
+```
 
-Supabase world-resolution and RPC requests are also attributed to their initiating bot,
-with request counts and outcomes. Shared world-resolution requests count only once.
-Supabase compute/storage/egress charges are **billed separately**, not presented as zero
-cost. Local Minecraft skills, explicit skill commands, and bot-to-bot coordination do not
-make OpenAI requests. This monitor does not track the Codex app's development usage or
-reconstruct API bills from before monitoring was installed.
+Replace `51234` with the current LAN port shown in Minecraft. See [the harness source](scripts/live-skill.cjs) for additional options. `--pre "/give @s stone_pickaxe"` sends a chat command first and requires commands enabled. The harness performs real world actions, prints activity, position, inventory, and a JSON summary, then disconnects.
 
-Records live in ignored `data/api-costs.sqlite`, shared by all fleet agents. SQLite uses
-transactions, WAL and full synchronous writes; it survives browser/server restarts and
-records requests before sending them. A pending request older than one minute is shown
-as interrupted with unknown cost, and a later response can still supply its usage. Failed,
-cancelled and timed-out calls with no usage remain **unknown**, not free. Received usage
-counts even if a reply is empty, stale, or discarded after disconnect. Response IDs prevent
-duplicate cost/token totals. API keys, request/response text, inventory payloads, and raw
-provider errors are never written to the cost ledger or returned by its endpoints.
+### Further reading
 
-Budget alerts appear at 80% and 100% for the project or a bot, using current UTC-day/month
-totals. They are optional on-screen alerts, not spending caps: bots keep running. Unknown
-costs can make a budget underestimate the eventual bill. A ledger failure is visible and
-marks monitoring as incomplete without stopping Minecraft work. Restart after fixing a
-storage error. Back up the database after stopping the controller; while it runs, include
-its SQLite `-wal` file rather than copying only the main database.
+| Guide | Contents |
+| --- | --- |
+| [Code guide](docs/CODE-GUIDE.md) | How a click becomes a bot action and where to make changes |
+| [Runtime and supervisors](docs/AGENT-RUNTIME.md) | Implemented contracts, profiles, budgets, APIs, and recovery |
+| [Adding skills and bots](skill.md) | Extension workflow and skill conventions |
+| [Storage setup](docs/STORAGE-SETUP.md) | Database configuration, shared chests, and crafting |
+| [Skill guides](docs/skills/) | Detailed commands and production cycles |
+| [Architecture review](docs/AGENT-ARCHITECTURE-REVIEW.md) | Design comparison and architecture findings |
+| [Architecture plan](docs/AGENT-ARCHITECTURE-PLAN.md) | Design baseline and staged rollout plan |
 
-Read-only endpoints: `GET /api/costs`, `GET /api/costs/export`, and each bot's equivalent
-under `/bots/<id>`. Filters are `from=YYYY-MM-DD`, `to=YYYY-MM-DD` (inclusive UTC day), and
-`agent=Marc`. Save alerts with `POST /api/costs/budgets`, for example
-`{"scope":"Marc","dailyUsd":1,"monthlyUsd":20}`; `null` disables an alert. Existing local-only
-Host/origin protections apply. No new npm dependency is needed; Node 22.13+ supplies SQLite
-(the existing Node 22.23.1 installation qualifies).
+## Contributing
 
-Restart the controller to activate collection. The implementation was checked with simulated
-OpenAI/Supabase responses and a browser preview, without making paid validation requests.
+Bug reports and focused pull requests are welcome. Describe the problem and how to reproduce it; for a code change, explain the resulting behavior and run `npm run verify`. Add meaningful coverage when changing behavior, and include live-world observations when the change depends on game physics or inventory timing.
+
+Start with the code guide and follow the existing module boundaries. Keep credentials, local configuration, generated assets, and saved world/bot data out of commits.
+
+## Acknowledgments
+
+Built on Mineflayer and the PrismarineJS ecosystem. Minecraft is a trademark of Mojang Studios. This project is independent and is not an official Minecraft product.

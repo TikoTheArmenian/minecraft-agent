@@ -1,9 +1,9 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { profiles, publicProfile } = require('../src/fleet.cjs')
+const { profiles, publicProfile } = require('../src/agents/fleet.cjs')
 const path = require('node:path')
-const { skills, skillForAlias, publicSkills, parseSkill } = require('../src/skills.cjs')
-const load = (module) => require(path.join(__dirname, '..', 'src', module))
+const { skills, skillForAlias, publicSkills, parseSkill } = require('../src/skills/registry.cjs')
+const load = (module) => require(path.join(__dirname, '..', 'src', 'skills', module))
 test('fleet profiles are unique and their default skill is a registered alias', () => {
   assert.equal(new Set(profiles.map((p) => p.id)).size, profiles.length)
   assert.equal(new Set(profiles.map((p) => p.username)).size, profiles.length)

@@ -1,17 +1,44 @@
-# How Marc and Jerry work
+# How the bot fleet works
 
 Start with this guide, then read the file headers and the comments above the main functions. The website is a remote control and status display. The server runs the bots even when the page is closed.
+
+The implemented architecture and operator controls are documented in [AGENT-RUNTIME.md](AGENT-RUNTIME.md).
+
+## Source layout
+
+`src/main.cjs` is the single startup entry point used by `npm run web`. Implementations live in folders named for their responsibility:
+
+```text
+src/
+  main.cjs       # Compose services, start the fleet/web server, and shut down
+  agents/        # Player profiles, per-player state, and fleet composition
+  skills/        # Registry and the 12 executable Minecraft workflows
+  runtime/       # Commands, contracts, one-owner execution, Work, and recovery
+  capabilities/  # Reusable resource progression, farm layout, and supplies
+  navigation/    # Routing, reach/visibility goals, passages, and work order
+  minecraft/     # Connection, packets, placement compatibility, tools, safety
+  storage/       # Shared storage, crafting, farm chests, and warehouse layout
+  world/         # Loaded-world observations, maps, and saved waypoints
+  messaging/     # Human/peer chat, whispers, inboxes, and storage coordination
+  supervisor/    # Per-bot LLM decisions, provider transport, and inference limits
+  infra/         # Versioned JSON, activity logs, API costs, and pricing
+  web/           # Express application and HTTP route adapters
+```
+
+Add a new workflow in `skills/` and register it in `skills/registry.cjs` with its contract in `runtime/skill-contracts.cjs`. Put reusable physical helpers in the relevant capability, navigation, Minecraft, or storage folder. Shared capabilities must not import runnable skills or application entry points; supervisors select work through the runtime. `npm run architecture` checks these boundaries, resolves relative imports, and prevents loose implementation files at the root of `src`.
+
+Import the owning module directly. There are no forwarding files at the former flat paths. Saved jobs, authentication, logs, cost ledgers, public assets, bot IDs, and public API URLs retain their existing locations and identities. `npm run format` and `npm run lint` cover every source folder.
 
 ## Follow one command
 
 For example, pressing **FARMER** follows this chain:
 
 1. `public/world.js` sends a command to the selected bot's local API.
-2. `src/server.cjs` routes that request to the appropriate `Agent` (Marc or Jerry).
-3. `src/agent.cjs` parses the command and creates a `WheatFarm` task.
-4. `src/wheat-farm.cjs` repeatedly runs a farm cycle: check safety and supplies, harvest, expand, and store surplus.
-5. Shared actions in `src/work.cjs` equip tools, dig blocks, plant seeds, and collect drops.
-6. When an action needs a different position, `src/travel.cjs` finds and executes a route.
+2. `src/web/server.cjs` routes that request to the selected profile’s `Agent`.
+3. `src/agents/agent.cjs` translates the command; `src/runtime/skill-runner.cjs` validates it, records its run identity, acquires the physical lock, and creates `WheatFarm`.
+4. `src/skills/wheat-farm.cjs` repeatedly runs a farm cycle: check safety and supplies, harvest, expand, and store surplus.
+5. Shared actions in `src/runtime/work.cjs` equip tools, dig blocks, plant seeds, and collect drops.
+6. When an action needs a different position, `src/navigation/travel.cjs` finds and executes a route.
 7. The agent publishes updated state. The browser redraws progress, inventory, the map, and logs.
 
 Minecraft confirms the results. Finishing a local animation does not, by itself, prove that a block was removed or an item was transferred.
@@ -20,38 +47,42 @@ Minecraft confirms the results. Finishing a local animation does not, by itself,
 
 | You want to understand… | Read… |
 | --- | --- |
-| Starting the website and every bot in the fleet | `src/server.cjs`, bot list in `src/fleet.cjs` |
-| Which skills exist, their aliases, labels and dashboard text | `src/skills.cjs` (the browser selector reads `/api/skills`) |
+| Starting the website and every bot in the fleet | `src/main.cjs`, `src/agents/fleet.cjs`; HTTP app in `src/web/server.cjs` |
+| Which skills exist, their aliases, labels and dashboard text | `src/skills/registry.cjs` (the browser selector reads `/api/skills`) |
 | Trying one bot's skill live without the control room | `scripts/live-skill.cjs` |
-| Connecting, commands, starting skills, and Stop | `src/agent.cjs` |
-| The continuous wheat farm | `src/wheat-farm.cjs`, starting at `cycle()` and `run()` |
-| Farm height, protected ground, and irrigation | `src/farm-layout.cjs`; `hydrated()` in `src/survival.cjs`; `irrigationRemains()` in `src/wheat-farm.cjs` |
-| Seeds and building blocks in chests | `src/farm-storage.cjs` |
-| Getting wood, crafting tools, food, and the starter farm | `src/survival.cjs` |
-| Cutting and replanting trees | `src/tree-farm.cjs` |
-| Torch crafting and placement | `src/torches.cjs` |
-| Moving, swimming, bridges, and stairs | `src/travel.cjs`, starting at `go()` |
-| Describing a ramp to a floating island | `src/island-routes.cjs` |
-| Choosing the best tool and performing physical work | `src/work.cjs` |
-| Reach, visibility, and item pickup destinations | `src/block-approach.cjs`, `src/pickup-goal.cjs` |
-| Minecraft's confirmation packets | `src/block-updates.cjs` |
-| Chat replies from OpenAI | `src/llm-chat.cjs` |
-| Collecting terrain data for the map | `src/world.cjs` |
+| Connecting, commands, starting skills, and Stop | `src/agents/agent.cjs` |
+| The continuous wheat farm | `src/skills/wheat-farm.cjs`, starting at `cycle()` and `run()` |
+| Farm height, protected ground, and irrigation | `src/capabilities/farm-layout.cjs`; `hydrated()` in `src/capabilities/resources.cjs`; shared expansion in `src/capabilities/crop-expansion.cjs` |
+| Seeds and building blocks in chests | `src/storage/farm-storage.cjs` |
+| Shared resource progression and the starter workflow | `src/capabilities/resources.cjs`; the runnable plan in `src/skills/survival.cjs` |
+| Cutting and replanting trees | `src/skills/tree-farm.cjs` |
+| Torch crafting and placement | `src/skills/torches.cjs` |
+| Moving, swimming, bridges, and stairs | `src/navigation/travel.cjs`, starting at `go()` |
+| Describing a ramp to a floating island | `src/navigation/island-routes.cjs` |
+| Choosing the best tool and performing physical work | `src/runtime/work.cjs` |
+| Reach, visibility, and item pickup destinations | `src/navigation/block-approach.cjs`, `src/navigation/pickup-goal.cjs` |
+| Minecraft's confirmation packets | `src/minecraft/block-updates.cjs` |
+| Informational chat replies | `src/messaging/llm-chat.cjs` |
+| Choosing skills with an LLM | `src/supervisor/supervisor.cjs`, `decision-schema.cjs`, and `inference-scheduler.cjs` |
+| Run admission, results, Stop and cooperative switching | `src/runtime/skill-runner.cjs`, `command-service.cjs`, `skill-contracts.cjs` |
+| Peer identity, inboxes, public chat and whispers | `src/messaging/` |
+| Atomic checkpoints and Mineflayer placement compatibility | `src/infra/json-store.cjs`, `src/minecraft/actions.cjs` |
+| Collecting terrain data for the map | `src/world/observations.cjs` |
 | Drawing the map and handling its controls | `public/world.js` |
 | Selecting a bot and receiving browser updates | `public/app.js` |
 | Showing the activity log | `public/activity.js` |
 
-`bot.cjs` and `start.cjs` are the older Terminal bot entry points. The web app starts through `src/server.cjs`. Dependencies under `node_modules/` are third-party libraries; you generally do not edit them.
+`bot.cjs` and `start.cjs` are the older Terminal bot entry points. The web app starts through `src/main.cjs`. Dependencies under `node_modules/` are third-party libraries; you generally do not edit them.
 
 ## Names you will see repeatedly
 
 - **`bot`**: Mineflayer's live Minecraft player: position, inventory, loaded blocks, and actions.
 - **`agent`**: our coordinator for that player. It owns the connection, task, logs, and dashboard state.
-- **`work`**: the task currently allowed to move and act. `Survival` extends `Work`; other skills reuse its helpers.
+- **`work`**: the task currently allowed to move and act. `ResourceWork` extends `Work`; resource-based skills inherit the neutral capability base. No skill inherits the runnable `Survival` workflow.
 - **`state`**: data sent to the browser. It is a snapshot, not the Minecraft world itself.
 - **`plan`**: a skill's progress and current decision, such as its farm layout or current tree job.
 - **`counts`**: progress counters. Their meaning depends on the action; for example, blocks mined and item stacks collected are different measurements.
-- **`goal`**: a rule defining an acceptable destination. To mine a log, Marc needs to reach a place where he can see and touch it, not stand inside it.
+- **`goal`**: a rule defining an acceptable destination. To mine a log, a bot needs to reach a place where he can see and touch it, not stand inside it.
 - **`overlay`**: imaginary blocks used while checking a proposed construction route. Nothing has been built until execution places and confirms those blocks.
 - **`predicate`**: a function returning true or false, used to filter candidates or check whether a block is still suitable.
 - **`cooldown`**: a short period during which an unsuccessful target is skipped instead of tried repeatedly.
@@ -85,7 +116,7 @@ Ground construction preserves required irrigation and reserves access blocks. Th
 
 ## What the LLM does
 
-The OpenAI model receives observations and answers direct mentions or whispers. It does not directly operate the movement or farming code. Automatic 30-second summaries are disabled. The older `ActionChat` class is retained in `src/action-chat.cjs`, but the agent does not use it to announce every action.
+The OpenAI model receives observations and answers direct mentions or whispers. It does not directly operate the movement or farming code. Automatic 30-second summaries are disabled. The older `ActionChat` class is retained in `src/messaging/action-chat.cjs`, but the agent does not use it to announce every action.
 
 ## Debugging a problem
 

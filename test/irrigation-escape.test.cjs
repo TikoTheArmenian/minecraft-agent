@@ -2,7 +2,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { goals } = require('mineflayer-pathfinder')
 const Move = require('mineflayer-pathfinder/lib/move')
-const { Travel, TravelMovements } = require('../src/travel.cjs')
+const { Travel, TravelMovements } = require('../src/navigation/travel.cjs')
 const { fixture, Vec3 } = require('./helpers/travel-fixture.cjs')
 
 function irrigationHole() {

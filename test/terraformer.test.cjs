@@ -4,10 +4,10 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { fixture, Vec3 } = require('./helpers/survival-fixture.cjs')
-const { parse } = require('../src/agent.cjs')
-const { BUILDING_BLOCKS } = require('../src/travel.cjs')
-const storage = require('../src/storage.cjs')
-const { Terraformer, parseTerraformer, protectedBlock } = require('../src/terraformer.cjs')
+const { parse } = require('../src/agents/agent.cjs')
+const { BUILDING_BLOCKS } = require('../src/navigation/travel.cjs')
+const storage = require('../src/storage/service.cjs')
+const { Terraformer, parseTerraformer, protectedBlock } = require('../src/skills/terraformer.cjs')
 
 // Fixture terrain: grass at y=63, dirt below, air above. The bot starts at (0,64,0).
 function setup(t, { colony = false } = {}) {
@@ -103,7 +103,7 @@ test('a column with solid blocks more than eight above the target refuses the wh
   assert.equal(work.plan.status, 'refused')
   assert.match(work.plan.decision, /too tall; choose a higher target or smaller area/)
   assert.equal(h.dug.length, 0)
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8')), {})
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8')).data, {})
 })
 
 test('corners farther than 64 blocks are refused before any work', async (t) => {
@@ -134,7 +134,7 @@ test('cuts top-down, fills from cut material, and finishes with the surface leve
   assert.equal(work.plan.cut, 3); assert.equal(work.plan.filled, 2); assert.equal(work.plan.done, 81)
   assert.match(work.plan.decision, /Colony storage is disabled/)
   assert.equal(work.plan.storage.startsWith('Colony storage is disabled'), true)
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8')), {}, 'complete jobs are cleared')
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8')).data, {}, 'complete jobs are cleared')
 })
 
 test('fill shortfall requests shared storage first, deposits surplus when nearly full, and reports the exact deficit', async (t) => {
@@ -155,7 +155,7 @@ test('fill shortfall requests shared storage first, deposits surplus when nearly
   assert.match(work.plan.decision, /short 5 fill block\(s\)/)
   assert.ok(calls.includes('store'), 'surplus deposit runs at the end of the job')
   assert.equal(work.reserves.dirt, 128, 'reserves return to the base policy once the job stops')
-  const saved = JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8'))['Test:overworld']
+  const saved = JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8')).data['Test:overworld']
   assert.equal(saved.status, 'partial'); assert.equal(saved.filled, 4)
 })
 
@@ -179,7 +179,7 @@ test('cancellation mid-layer keeps the saved job and a bare terraform resumes on
   assert.equal(work.task.status, 'cancelled'); assert.equal(work.plan.status, 'cancelled')
   assert.equal(h.dug.length, 2)
   const file = path.join(h.dir, 'terraform-jobs.json')
-  let saved = JSON.parse(fs.readFileSync(file, 'utf8'))['Test:overworld']
+  let saved = JSON.parse(fs.readFileSync(file, 'utf8')).data['Test:overworld']
   // The second dig was interrupted before the server confirmation: it is not counted, only verified later.
   assert.equal(saved.cut, 1); assert.equal(saved.status, 'cancelled'); assert.equal(saved.done.length, 76)
   // Someone disturbed a "done" column; live verification must redo it.
@@ -191,7 +191,7 @@ test('cancellation mid-layer keeps the saved job and a bare terraform resumes on
   assert.match(work.plan.decision, /-4,-4 to 4,4 at Y=63/)
   assert.equal(h.dug.length, 6, 'finished columns are not dug again')
   assert.equal(work.plan.cut, 5, 'resumed counts continue from the saved job')
-  saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+  saved = JSON.parse(fs.readFileSync(file, 'utf8')).data
   assert.deepEqual(saved, {})
 })
 
@@ -242,7 +242,7 @@ test('three passes without progress pause the job as partial and keep it saved',
   assert.equal(work.task.status, 'partial'); assert.equal(work.plan.status, 'partial')
   assert.match(work.plan.decision, /No progress after three attempts: .*No useful route/)
   assert.equal(h.dug.length, 0)
-  const saved = JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8'))['Test:overworld']
+  const saved = JSON.parse(fs.readFileSync(path.join(h.dir, 'terraform-jobs.json'), 'utf8')).data['Test:overworld']
   assert.equal(saved.status, 'partial')
 })
 
@@ -287,10 +287,10 @@ test('fill references prefer same-level pit walls over a support face beyond sta
   assert.deepEqual(supports[1].ref, new Vec3(1, 65, 0), 'nearest wall first')
   // Real raycast geometry: from the plateau edge the wall's centre is hidden but its face is not.
   h.bot.world = { getBlock: (p) => h.bot.blockAt(p), raycast: require('prismarine-world/src/worldsync').prototype.raycast }
-  const { visible } = require('../src/block-approach.cjs')
+  const { visible } = require('../src/navigation/block-approach.cjs')
   const eye = new Vec3(-0.5, 68.62, 0.5)
   assert.equal(visible(h.bot, new Vec3(1, 65, 0), eye, 3.75), false, 'block-centre view is occluded by the plateau')
-  const { FillStanceGoal } = require('../src/terraformer.cjs')
+  const { FillStanceGoal } = require('../src/skills/terraformer.cjs')
   assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(1, 65, 0), new Vec3(-1, 0, 0)).isEnd(new Vec3(-1, 67, 0)), true, 'the wall face is visible from the far edge')
   assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(0, 64, 0), new Vec3(0, 1, 0)).isEnd(new Vec3(-1, 67, 0)), false, 'the edge block clips the view of the floor face, so the wall face is used')
   assert.equal(new FillStanceGoal(h.bot, new Vec3(0, 65, 0), new Vec3(0, 64, 0), new Vec3(0, 1, 0)).isEnd(new Vec3(-2, 67, 0)), false, 'two blocks back the floor face is out of reach')

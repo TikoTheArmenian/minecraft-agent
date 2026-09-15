@@ -14,10 +14,10 @@
  */
 const path = require('node:path')
 const { Vec3 } = require('vec3')
-const { Agent } = require('../src/agent.cjs')
-const { Colony } = require('../src/colony.cjs')
-const { profiles, publicProfile } = require('../src/fleet.cjs')
-const { parseTerraformer, protectedBlock, CUT_ABOVE, FILL_BELOW } = require('../src/terraformer.cjs')
+const { Agent } = require('../src/agents/agent.cjs')
+const { Colony } = require('../src/storage/colony.cjs')
+const { profiles, publicProfile } = require('../src/agents/fleet.cjs')
+const { parseTerraformer, protectedBlock, CUT_ABOVE, FILL_BELOW } = require('../src/skills/terraformer.cjs')
 
 function args() {
   const out = { pre: [], bot: 'terra', radius: 48, wait: 6, world: 'Agent Playground' }

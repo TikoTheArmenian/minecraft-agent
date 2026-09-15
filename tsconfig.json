@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/runtime/schema.cjs", "src/runtime/command-service.cjs", "src/runtime/types.d.ts"]
+}

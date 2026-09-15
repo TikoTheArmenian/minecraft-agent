@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
-const {LlmChat}=require('../src/llm-chat.cjs')
+const {LlmChat}=require('../src/messaging/llm-chat.cjs')
 function setup(t,fetchImpl){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mc-chat-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const sent=[];const bot={username:'Marc',chat:s=>sent.push(s),whisper:(u,s)=>sent.push(`${u}: ${s}`)};const agent={username:'Marc',dataDir:dir,bot,epoch:1,state:{task:{status:'running',label:'Planting wheat'},inventory:[]},publish(){},log(){},say(){}};const chat=new LlmChat(agent,{fetchImpl,env:{OPENAI_API_KEY:"test-secret"}});chat.configure({enabled:true});return {chat,agent,bot,sent}}
 test('addressed chat uses live task and never exposes key in state or prompt',async t=>{
  let body;const f=setup(t,async(url,o)=>{body=JSON.parse(o.body);return {ok:true,json:async()=>({output:[{type:'message',content:[{type:'output_text',text:'I am planting wheat.'}]}]})}})

@@ -1,8 +1,8 @@
 const {test}=require('node:test')
 const assert=require('node:assert/strict')
 const {fixture,Vec3}=require('./helpers/survival-fixture.cjs')
-const {TreeFarm,inspectTree}=require('../src/tree-farm.cjs')
-const {parse}=require('../src/agent.cjs')
+const {TreeFarm,inspectTree}=require('../src/skills/tree-farm.cjs')
+const {parse}=require('../src/agents/agent.cjs')
 function setup() {
   const h=fixture()
   for(let y=64;y<=72;y++)h.set('oak_log',new Vec3(0,y,0))
@@ -105,16 +105,16 @@ test('actual canopy stance reaches logs even when the block-center ray is occlud
   h.bot.entity.position=new Vec3(capture.position.x,capture.position.y,capture.position.z)
   const work=new TreeFarm(h.agent,1),p=new Vec3(-471,70,1042)
   work.job={species:'birch',roots:[p.offset(0,-4,0)]}
-  const {BlockApproachGoal}=require('../src/block-approach.cjs')
+  const {BlockApproachGoal}=require('../src/navigation/block-approach.cjs')
   assert.equal(new BlockApproachGoal(h.bot,p).isEnd(h.bot.entity.position.floored()),false)
   h.bot.pathfinder.goto=()=>{assert.fail('Must use the existing reachable stance instead of repeating route search')}
   assert.equal(work.canWork(p),true)
-  assert.equal(new (require('../src/tree-farm.cjs').CanopyGoal)(h.bot,p,'birch').isEnd(h.bot.entity.position.floored()),true,'canopy ray must retain its full reach after normalizing direction')
+  assert.equal(new (require('../src/skills/tree-farm.cjs').CanopyGoal)(h.bot,p,'birch').isEnd(h.bot.entity.position.floored()),true,'canopy ray must retain its full reach after normalizing direction')
   await work.reachLog(p)
 })
 
 test('planned stair support can satisfy the search goal but cannot satisfy live reach before placement',()=>{
-  const {CanopyGoal}=require('../src/tree-farm.cjs'),Move=require('mineflayer-pathfinder/lib/move')
+  const {CanopyGoal}=require('../src/skills/tree-farm.cjs'),Move=require('mineflayer-pathfinder/lib/move')
   const h=fixture(),work=new TreeFarm(h.agent,1),p=new Vec3(2,70,0)
   h.set('birch_log',p)
   const node=new Move(0,69,0,10,1,[],[{x:0,y:67,z:0,dx:0,dy:1,dz:0}])
@@ -146,13 +146,13 @@ test('replanting steps back when the closest visible stance overlaps the sapling
   assert.equal(moved,true);assert.equal(h.bot.blockAt(new Vec3(4,64,4)).name,'birch_sapling')
 })
 
-test('real movement physics builds confirmed canopy steps in the second captured birch tree',async()=>{
+function canopyStairFixture(offsetX=0) {
   const {fixture:terrainFixture,registry}=require('./helpers/travel-fixture.cjs')
   const capture=require('./helpers/tree-stair-terrain.json'),Block=require('prismarine-block')(registry)
   const h=terrainFixture({stock:64}),key=p=>p.floored().toString()
   const map=new Map(capture.blocks.map(([x,y,z,id])=>{const b=Block.fromStateId(id,0);b.position=new Vec3(x,y,z);return [key(b.position),b]}))
   h.bot.blockAt=p=>h.changes.get(`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`) || map.get(key(p)) || null
-  h.bot.entity.position=new Vec3(capture.position.x,capture.position.y,capture.position.z)
+  h.bot.entity.position=new Vec3(capture.position.x+offsetX,capture.position.y,capture.position.z)
   h.bot.canDigBlock=b=>b.position.offset(.5,.5,.5).distanceTo(h.bot.entity.position.offset(0,1.62,0))<4.5
   h.bot.inventory.emptySlotCount=()=>20;h.bot.unequip=async()=>{h.bot.heldItem=null}
   h.bot.dig=async b=>{
@@ -163,14 +163,39 @@ test('real movement physics builds confirmed canopy steps in the second captured
   h.bot.pathfinder.thinkTimeout=1000;h.bot.pathfinder.tickTimeout=5
   const work=new TreeFarm(h.agent,1),target=new Vec3(-466,72,1038)
   work.job={species:'birch',roots:[new Vec3(-466,66,1038)]}
+  return {h,work,target}
+}
+
+test('real movement physics builds confirmed canopy steps in the second captured birch tree',async()=>{
+  const {h,work,target}=canopyStairFixture()
   await h.simulate(work.reachLog(target),6000)
   assert.ok(h.placements.length>=2,'must actually place supports, not teleport to the canopy')
   assert.equal(work.canWork(target),true)
   assert.ok(h.bot.entity.position.y>=70)
 })
 
+test('real canopy physics recenters an edge-supported body before planning scaffold references',async()=>{
+  const {h,work,target}=canopyStairFixture(.72)
+  await h.simulate(work.motionUntil(()=>h.bot.entity.onGround,'Settle on the captured block edge'))
+  assert.equal(h.bot.entity.onGround,true)
+  assert.equal(h.bot.blockAt(h.bot.entity.position.floored().offset(0,-1,0)).name,'air')
+  const before=h.bot.entity.position.clone()
+  await h.simulate(work.supportedCanopyStance())
+  assert.notDeepEqual(h.bot.entity.position,before)
+  assert.equal(h.bot.blockAt(h.bot.entity.position.floored().offset(0,-1,0)).boundingBox,'block')
+  assert.equal(h.placements.length,0,'recenter must walk on existing support, without building')
+  const place=h.bot._placeBlockWithOptions
+  h.bot._placeBlockWithOptions=async(ref,...args)=>{
+    assert.equal(ref.boundingBox,'block','each scaffold reference must be actual solid terrain')
+    return place.call(h.bot,ref,...args)
+  }
+  await h.simulate(work.reachLog(target),6000)
+  assert.ok(h.placements.length>=2)
+  assert.equal(work.canWork(target),true)
+})
+
 test('canopy planning preserves three-block sight range with a normalized ray direction',()=>{
-  const h=fixture(),{CanopyGoal}=require('../src/tree-farm.cjs'),target=new Vec3(3,65,0)
+  const h=fixture(),{CanopyGoal}=require('../src/skills/tree-farm.cjs'),target=new Vec3(3,65,0)
   h.set('birch_log',target)
   h.bot.world={getBlock:p=>h.bot.blockAt(p),raycast:require('prismarine-world/src/worldsync').prototype.raycast}
   assert.equal(new CanopyGoal(h.bot,target,'birch').isEnd(new Vec3(0,64,0)),true)

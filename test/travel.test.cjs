@@ -2,9 +2,9 @@ const { test }=require('node:test')
 const assert=require('node:assert/strict')
 const { goals }=require('mineflayer-pathfinder')
 const Move=require('mineflayer-pathfinder/lib/move')
-const { Travel,TravelMovements }=require('../src/travel.cjs')
+const { Travel }=require('../src/navigation/travel.cjs')
 const { fixture,Vec3 }=require('./helpers/travel-fixture.cjs')
-const { BlockApproachGoal,canView }=require('../src/block-approach.cjs')
+const { BlockApproachGoal,canView }=require('../src/navigation/block-approach.cjs')
 
 test('movement allows surface water entries and exits, but bounds drops and can walk through dense farmland',()=>{
   const {bot,changes,make}=fixture({bank:62})
@@ -258,7 +258,7 @@ test('builds and climbs a rising bridge to a floating island with no seabed supp
  assert.equal(bot.blockAt(new Vec3(2,59,0)).name,'air')
 })
 test('floating island plans contain only supported placements and reject unloaded gaps',()=>{
- const {bot,changes,make}=fixture({stock:16}),{islandRoutes}=require('../src/island-routes.cjs')
+ const {bot,changes,make}=fixture({stock:16}),{islandRoutes}=require('../src/navigation/island-routes.cjs')
  for(let x=-5;x<=12;x++)for(let z=-4;z<=4;z++)for(let y=58;y<=72;y++){
   const p=new Vec3(x,y,z);changes.set(`${x},${y},${z}`,make(x<=0&&y<=63 || x>=4&&y===66?'stone':'air',p))
  }
@@ -302,7 +302,7 @@ test('completed partial segments are not searched and walked a second time',asyn
  assert.deepEqual(seen,[goal,goal])
 })
 test('weighted long-walk search expands fewer nodes around a wall using the same legal moves',()=>{
- const {WalkingSearchGoal}=require('../src/travel.cjs'),AStar=require('mineflayer-pathfinder/lib/astar'),Move=require('mineflayer-pathfinder/lib/move')
+ const {WalkingSearchGoal}=require('../src/navigation/travel.cjs'),AStar=require('mineflayer-pathfinder/lib/astar'),Move=require('mineflayer-pathfinder/lib/move')
  const goal=new goals.GoalBlock(60,64,0)
  const movements={getNeighbors(n){return [[1,0],[-1,0],[0,1],[0,-1]].map(([x,z])=>new Move(n.x+x,64,n.z+z,0,1)).filter(p=>p.x>=-10&&p.x<=80&&Math.abs(p.z)<=30&&!(p.x===20&&Math.abs(p.z)<=12))}}
  const search=g=>new AStar(new Move(0,64,0,0,0),movements,g,10000,10000).compute()

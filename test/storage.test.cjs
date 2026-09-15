@@ -4,11 +4,11 @@ const { Vec3 } = require('vec3')
 const registry = require('minecraft-data')('1.21.1')
 const Item = require('prismarine-item')(registry)
 const Recipe = require('prismarine-recipe')(registry).Recipe
-const { describe, plain, reserve } = require('../src/storage-policy.cjs')
-const { identity, transfer, withChest } = require('../src/storage.cjs')
-const { planRecipes, stocks } = require('../src/crafting.cjs')
-const { Colony } = require('../src/colony.cjs')
-const { parse } = require('../src/agent.cjs')
+const { describe, plain, reserve } = require('../src/storage/policy.cjs')
+const { identity, transfer, withChest } = require('../src/storage/service.cjs')
+const { planRecipes, stocks } = require('../src/storage/crafting.cjs')
+const { Colony } = require('../src/storage/colony.cjs')
+const { parse } = require('../src/agents/agent.cjs')
 const bot = { registry, recipesAll: (id) => Recipe.find(id, null) }
 const item = (name, count = 1, slot = 0) =>
   Object.assign(new Item(registry.itemsByName[name].id, count), { slot })
@@ -227,7 +227,7 @@ test('storage command bounds are enforced and old aliases stay intact', () => {
   assert.equal(parse('farm wheat forever').type, 'wheatFarm')
 })
 test('craft execution retrieves shared logs, reserves ingredients, confirms recipes and stores output', async () => {
-  const { execute } = require('../src/crafting.cjs')
+  const { execute } = require('../src/storage/crafting.cjs')
   const inventory = [],
     chestSlots = Array(27).fill(null)
   chestSlots[0] = item('oak_log', 8, 0)
@@ -406,7 +406,7 @@ test('container cleanup stays scoped to the original world after session changes
   assert.deepEqual(calls.at(-1), ['original', 'one', 'release'])
 })
 test('storage API validates structured goals and scopes them to the selected bot', async (t) => {
-  const { createApp } = require('../src/server.cjs')
+  const { createApp } = require('../src/web/server.cjs')
   const calls = []
   const make = (name) => ({
     username: name,
@@ -497,7 +497,7 @@ test('world IDs resolve automatically and failures do not poison the cache', asy
   assert.equal(registrations, 2)
 })
 test('storage placement uses the public Mineflayer API and waits for server confirmation', async () => {
-  const { place } = require('../src/crafting.cjs')
+  const { place } = require('../src/storage/crafting.cjs')
   const { EventEmitter } = require('node:events')
   const p = new Vec3(0, 63, 0),
     target = p.offset(0, 1, 0),
@@ -561,7 +561,7 @@ test('server rejection after predicted clicks keeps the transfer quarantined', a
   assert(!calls.some(([a]) => a === 'finish'))
 })
 test('hub destinations exclude remote chests and preserve category preference',()=>{
-  const {destinations}=require('../src/storage-steward.cjs')
+  const {destinations}=require('../src/storage/steward.cjs')
   const hub={x:0,y:64,z:0}
   const containers=[{id:'remote',managed:true,category:'food',position:{x:25,y:64,z:0}}, {id:'fallback',managed:true,category:'overflow',position:hub}, {id:'food',managed:true,category:'food',position:hub}, {id:'private',managed:false,category:'food',position:hub}]
   assert.deepEqual(destinations(containers,hub,item('wheat'),registry).map(c=>c.id),['food','fallback'])
@@ -571,12 +571,12 @@ test('hub destinations exclude remote chests and preserve category preference',(
   assert.throws(()=>parse('storage hub 0 999 0'))
 })
 test('sign labels read server block entity text and retain supplied signs',()=>{
-  const {signText}=require('../src/storage-steward.cjs')
+  const {signText}=require('../src/storage/steward.cjs')
   assert.equal(signText({entity:{front_text:{messages:['{"text":"Colony storage"}','"Food"','"Shared by all"','"Sam"']}}}),'Colony storage\nFood\nShared by all\nSam')
   assert.equal(reserve(item('cherry_sign'),{bot:{registry}}),32)
 })
 test('consolidation leaves reserved stock and full destinations untouched',async t=>{
-  const storage=require('../src/storage.cjs'), steward=require('../src/storage-steward.cjs')
+  const storage=require('../src/storage/service.cjs'), steward=require('../src/storage/steward.cjs')
   const wheat=describe(item('wheat',64)), hub={x:0,y:64,z:0}
   const source={id:'source',managed:false,category:'food',position:{x:20,y:64,z:0},slots:[wheat]}
   const destination={id:'dest',managed:true,category:'food',position:hub,capacity:1,slots:[wheat]}
@@ -590,7 +590,7 @@ test('consolidation leaves reserved stock and full destinations untouched',async
   await steward.consolidate(w,hub)
 })
 test('warehouse plans double capacity beyond demand and ignores remote spare space',()=>{
- const{expansionCategory}=require('../src/storage-steward.cjs'),hub={x:0,y:64,z:0}
+ const{expansionCategory}=require('../src/storage/steward.cjs'),hub={x:0,y:64,z:0}
  const chest=(category,used,capacity=54,x=0)=>({category,managed:true,position:{x,y:64,z:0},capacity,slots:Array(used).fill({})})
  const containers=[chest('food',26,27),chest('food',26,27),chest('overflow',27,27),chest('overflow',0,54,30)]
  assert.equal(expansionCategory(containers,hub),'overflow')

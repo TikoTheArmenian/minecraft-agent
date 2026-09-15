@@ -1,11 +1,11 @@
 const {test}=require('node:test')
 const {EventEmitter}=require('node:events')
-const {watchBlock}=require('../src/block-updates.cjs')
+const {watchBlock}=require('../src/minecraft/block-updates.cjs')
 const assert=require('node:assert/strict')
 const {Vec3}=require('vec3')
 const registry=require('minecraft-data')('1.21.1')
 const Block=require('prismarine-block')(registry)
-const {Work,parseWork,chooseTool,mature,CROPS}=require('../src/work.cjs')
+const {Work,parseWork,chooseTool,mature,CROPS}=require('../src/runtime/work.cjs')
 const key=p=>`${p.x},${p.y},${p.z}`
 function fixture() {
   const blocks=new Map(),dug=[],planted=[],items=[]
@@ -16,7 +16,7 @@ function fixture() {
     canSeeBlock:()=>true,canDigBlock:()=>true,stopDigging(){},clearControlStates(){},
     equip:async i=>{bot.heldItem=i},unequip:async()=>{bot.heldItem=null},lookAt:async()=>{},
     dig:async b=>{dug.push(b.name);set('air',b.position);bot._client.emit('block_change',{location:b.position,type:0})},
-    _placeBlockWithOptions:async b=>{const crop=Object.values(CROPS).find(c=>c.seed===bot.heldItem.name);set(crop.block,b.position.offset(0,1,0));planted.push(crop.block);bot.heldItem.count--},
+    _placeBlockWithOptions:async b=>{const crop=Object.values(CROPS).find(c=>c.seed===bot.heldItem.name);const plantedBlock=set(crop.block,b.position.offset(0,1,0));planted.push(crop.block);bot.heldItem.count--;bot._client.emit('block_change',{location:plantedBlock.position,type:plantedBlock.stateId})},
     findBlocks:({matching})=>[...blocks.values()].filter(b=>b.type===matching).map(b=>b.position)
   })
   const agent={bot,nav:1,state:{connection:'ready',task:{status:'running'}},publish(){},say(text){this.last=text},disconnect(){this.nav++;this.bot=null;this.state.connection='disconnected'}}
@@ -136,7 +136,7 @@ test('predicted local air does not count as server-confirmed mining',async()=>{
   f.bot.dig=async b=>f.set('air',b.position) // client prediction only
   const timed=f.work.timed.bind(f.work)
   f.work.timed=(fn,ms)=>timed(fn,Math.min(ms||20000,15))
-  await f.work.run(parseWork('mine dirt 1'))
+  await assert.rejects(f.work.run(parseWork('mine dirt 1')), /timed out/)
   assert.equal(f.work.counts.mined,0)
   assert.equal(f.agent.state.task.status,'failed')
   assert.equal(f.bot._client.listenerCount('block_change'),0)
@@ -173,7 +173,7 @@ test('cancellation preserves the last completed work count',()=>{
   assert.equal(f.agent.state.task.counts.mined,3)
 })
 test('pickup approaches fractional-height drops within range and follows movement',async()=>{
-  const {Travel}=require('../src/travel.cjs'),original=Travel.prototype.go
+  const {Travel}=require('../src/navigation/travel.cjs'),original=Travel.prototype.go
   const f=fixture(),p=new Vec3(2.5,63.9375,.5),item={id:90,name:'item',position:p}
   f.bot.entity.id=1;f.bot.entities[90]=item
   Travel.prototype.go=async function(goal){
@@ -190,4 +190,104 @@ test('unreachable loot is skipped on repeated passes instead of replanning',asyn
   await f.work.pickup(p);await f.work.pickup(p)
   assert.equal(searches,1);assert.match(f.work.issues[0],/continuing work/);assert.equal(f.work.task.travel.status,'skipped');assert.equal(f.bot.listenerCount('playerCollect'),0)
   f.work.pickupCooldowns.set(91,Date.now()-1);await f.work.pickup(p);assert.equal(searches,2)
+})
+test('ordinary checkpoints are inert, but requested handoffs refuse an open window or cursor', () => {
+  const { work, bot, agent } = fixture()
+  bot.currentWindow = {}; bot.inventory.selectedItem = {}
+  assert.doesNotThrow(() => work.checkpoint({ phase: 'idle' }))
+  assert.equal(work.task.checkpoint, undefined)
+  work.requestHandoff()
+  assert.throws(() => work.checkpoint(), { code: 'HANDOFF_BLOCKED' })
+  bot.currentWindow = null
+  assert.throws(() => work.checkpoint(), { code: 'HANDOFF_BLOCKED' })
+  assert.equal(work.controller.signal.aborted, false)
+  bot.inventory.selectedItem = null
+  let saved = null
+  agent.runtime = { saveCheckpoint: (_, checkpoint) => { saved = checkpoint } }
+  assert.throws(() => work.checkpoint({ phase: 'stable' }), { code: 'HANDOFF' })
+  assert.equal(saved.data.phase, 'stable')
+  assert.throws(() => work.check(), { code: 'HANDOFF' })
+})
+test('handoff checkpoint persistence fails before aborting the active skill', () => {
+  const { work, agent } = fixture()
+  work.requestHandoff()
+  agent.runtime = { saveCheckpoint() { throw Object.assign(new Error('Cannot save checkpoint'), { code: 'CHECKPOINT_WRITE_FAILED' }) } }
+  assert.throws(() => work.checkpoint(), { code: 'CHECKPOINT_WRITE_FAILED' })
+  assert.equal(work.controller.signal.aborted, false)
+  assert.equal(work.task.checkpoint, undefined)
+})
+test('cleanup runs once in reverse order, bounds hung callbacks, and retires its socket before release', async () => {
+  const { work, agent } = fixture(), order = []
+  work.registerCleanup(() => { order.push('first') })
+  work.registerCleanup(() => { order.push('hung'); return new Promise(() => {}) }, { label: 'Close window', timeoutMs: 10 })
+  work.registerCleanup(() => { order.push('last') })
+  const pending = work.cleanup({ timeoutMs: 50 })
+  assert.equal(work.cleanup(), pending)
+  await assert.rejects(pending, error => error.code === 'CLEANUP_FAILED' && error.fatal)
+  assert.deepEqual(order, ['last', 'hung', 'first'])
+  assert.equal(agent.bot, null)
+  assert.equal(work.task.reasonCode, 'CLEANUP_FAILED')
+})
+test('cleanup of an obsolete run never disconnects a newer bot', async () => {
+  const { work, agent, bot } = fixture()
+  let retired = false
+  bot._client.socket = { destroy() { retired = true } }
+  const current = agent.bot = { newer: true }
+  work.registerCleanup(() => { throw new Error('Old resource failed') })
+  await assert.rejects(work.cleanup(), { code: 'CLEANUP_FAILED' })
+  assert.equal(retired, true)
+  assert.equal(agent.bot, current)
+})
+test('an unclosed window cannot pass the final ownership-release barrier', async () => {
+  const { work, bot, agent } = fixture()
+  bot.currentWindow = {}
+  await assert.rejects(work.cleanup(), { code: 'CLEANUP_FAILED' })
+  assert.equal(agent.bot, null)
+})
+test('a server-confirmed dig remains in the result when Stop races completion', async () => {
+  const { work, bot, set } = fixture(), p = new Vec3(2, 64, 0)
+  set('dirt', p)
+  const dig = bot.dig
+  bot.dig = async block => { await dig(block); work.cancel() }
+  await assert.rejects(work.dig(p, 'dirt'), { code: 'CANCELLED' })
+  assert.equal(work.effects.length, 1)
+  assert.equal(work.effects[0].kind, 'block_removed')
+  assert.deepEqual(work.effects[0].position, { x: 2, y: 64, z: 0 })
+})
+test('predicted planting without a server packet neither succeeds nor records a confirmed effect', async () => {
+  const { work, bot, set, items } = fixture(), p = new Vec3(2, 63, 0)
+  set('farmland', p)
+  items.push({ name: 'wheat_seeds', type: registry.itemsByName.wheat_seeds.id, count: 2 })
+  bot._placeBlockWithOptions = async soil => { set('wheat', soil.position.offset(0, 1, 0)); bot.heldItem.count-- }
+  const timed = work.timed.bind(work)
+  work.timed = (operation, limit, label) => timed(operation, Math.min(limit, 15), label)
+  await assert.rejects(work.plant(p, CROPS.wheat), /timed out/)
+  assert.equal(work.counts.planted, 0)
+  assert.equal(work.effects.length, 0)
+  assert.equal(bot._client.listenerCount('block_change'), 0)
+})
+test('a requested farming handoff completes harvest and replant before yielding', async () => {
+  const f = fixture()
+  for (const x of [2, 3]) { f.set('farmland', new Vec3(x, 63, 0)); f.set('wheat', new Vec3(x, 64, 0), 7) }
+  f.items.push({ name: 'wheat_seeds', type: registry.itemsByName.wheat_seeds.id, count: 2 })
+  const dig = f.bot.dig
+  f.bot.dig = async block => { await dig(block); f.work.requestHandoff() }
+  await assert.rejects(f.work.run(parseWork('farm wheat')), { code: 'HANDOFF' })
+  assert.deepEqual(f.dug, ['wheat'])
+  assert.deepEqual(f.planted, ['wheat'])
+  assert.equal(f.work.task.reasonCode, 'HANDOFF')
+  assert.equal(f.work.task.checkpoint.data.phase, 'replanted')
+  assert.equal(f.work.counts.harvested, 1)
+  assert.equal(f.work.counts.planted, 1)
+  assert.deepEqual(f.work.effects.map(effect => effect.kind), ['block_removed', 'block_placed'])
+})
+test('mining switches only after recording the finished block and before the next target', async () => {
+  const f = fixture()
+  for (const x of [2, 3]) f.set('dirt', new Vec3(x, 64, 0))
+  const dig = f.bot.dig
+  f.bot.dig = async block => { await dig(block); f.work.requestHandoff() }
+  await assert.rejects(f.work.run(parseWork('mine dirt 2')), { code: 'HANDOFF' })
+  assert.equal(f.dug.length, 1)
+  assert.equal(f.work.counts.mined, 1)
+  assert.equal(f.work.task.checkpoint.data.phase, 'mined')
 })

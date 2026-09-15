@@ -15,9 +15,9 @@
  */
 const path = require('node:path')
 const { Vec3 } = require('vec3')
-const { Agent } = require('../src/agent.cjs')
-const { Colony } = require('../src/colony.cjs')
-const { profiles, publicProfile } = require('../src/fleet.cjs')
+const { Agent } = require('../src/agents/agent.cjs')
+const { Colony } = require('../src/storage/colony.cjs')
+const { profiles, publicProfile } = require('../src/agents/fleet.cjs')
 
 const DEFAULTS = '-560,1100;-540,960;-390,1024;-464,940;-600,1024;-464,1130'
 const SOLID = /^(stone|dirt|grass_block|andesite|granite|diorite|deepslate|coarse_dirt|podzol|tuff|gravel|sand|snow_block|moss_block|calcite)$/

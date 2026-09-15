@@ -14,9 +14,9 @@
  * Colony chat peers (Sam's role questions) only work inside the control room where all bots share a process.
  */
 const path = require('node:path')
-const { Agent } = require('../src/agent.cjs')
-const { Colony } = require('../src/colony.cjs')
-const { profiles, publicProfile } = require('../src/fleet.cjs')
+const { Agent } = require('../src/agents/agent.cjs')
+const { Colony } = require('../src/storage/colony.cjs')
+const { profiles, publicProfile } = require('../src/agents/fleet.cjs')
 
 function args() {
   const out = { pre: [], seconds: 120, world: 'Agent Playground' }

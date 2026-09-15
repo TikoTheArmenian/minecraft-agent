@@ -1,9 +1,9 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { fixture, Vec3 } = require('./helpers/survival-fixture.cjs')
-const { OreFinder, parseOreFinder } = require('../src/ore-finder.cjs')
-const { parse } = require('../src/agent.cjs')
-const storage = require('../src/storage.cjs')
+const { OreFinder, parseOreFinder } = require('../src/skills/ore-finder.cjs')
+const { parse } = require('../src/agents/agent.cjs')
+const storage = require('../src/storage/service.cjs')
 
 // Fixture terrain: grass at y=63, dirt below, air above. An ore at y=64 is exposed on five
 // faces; an ore at y=60 is sealed in dirt (buried) unless a neighbour is replaced by air.

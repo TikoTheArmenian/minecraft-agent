@@ -2,7 +2,7 @@
 
 Terra levels one bounded rectangle of columns to a target height: blocks above the target are
 cut, missing surface blocks (and up to three supports beneath them) are filled, and the job is
-saved so a later `terraform` continues where it stopped. Implementation: `src/terraformer.cjs`.
+saved so a later `terraform` continues where it stopped. Implementation: `src/skills/terraformer.cjs`.
 
 ## Commands
 
@@ -26,7 +26,7 @@ Sam's role table lists `iron_shovel` + `iron_pickaxe` and 128 dirt as her suppli
    block with a block entity are never touched, and every column within two columns of one is
    skipped with a reason (`plan.skipped`, at most 20 shown, `skippedCount` for the total). Columns
    with liquid above the target level or unmineable blocks are skipped too. The single commented
-   constant is `PROTECTED_NAMES` / `PROTECTED_PATTERNS` in `src/terraformer.cjs`.
+   constant is `PROTECTED_NAMES` / `PROTECTED_PATTERNS` in `src/skills/terraformer.cjs`.
 3. **Budget.** `needFill` is the number of placements. Material comes first from the cut blocks
    (dirt, grass, stone → cobblestone, deepslate, granite…), then from shared storage: when the
    colony is enabled, the hub is within 80 blocks of the start position and cut yield plus carried

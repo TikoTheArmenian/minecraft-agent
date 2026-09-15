@@ -1,9 +1,9 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { fixture, Vec3 } = require('./helpers/survival-fixture.cjs')
-const { SugarcaneFarm, groupColumns, plantable, farmNearby } = require('../src/sugarcane-farm.cjs')
-const storage = require('../src/storage.cjs')
-const { parse } = require('../src/agent.cjs')
+const { SugarcaneFarm, groupColumns, plantable, farmNearby } = require('../src/skills/sugarcane-farm.cjs')
+const storage = require('../src/storage/service.cjs')
+const { parse } = require('../src/agents/agent.cjs')
 
 // Default fixture ground is grass at y=63 with air above. Water and cane are set explicitly.
 function setup() {
@@ -349,10 +349,10 @@ test('error passes reset once a pass makes confirmed progress', async () => {
   assert.equal(pass, 7)
 })
 
-test('wording never names Marc and Survival mode is required', () => {
+test('shared safety names the active bot, quoted observations stay intact, and Survival mode is required', () => {
   const f = setup()
   f.work.addIssue('Give Marc a tool.')
-  assert.ok(f.work.issues.at(-1).includes('Cane'))
+  assert.equal(f.work.issues.at(-1), 'Give Marc a tool.')
   f.bot.health = 3
   assert.match(f.work.safety(), /Cane/)
   f.bot.health = 20

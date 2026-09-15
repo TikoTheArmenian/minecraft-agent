@@ -1,8 +1,8 @@
 const test=require('node:test')
 const assert=require('node:assert/strict')
 const {fixture,Vec3,registry}=require('./helpers/survival-fixture.cjs')
-const {WheatFarm}=require('../src/wheat-farm.cjs')
-const {parse}=require('../src/agent.cjs')
+const {WheatFarm}=require('../src/skills/wheat-farm.cjs')
+const {parse}=require('../src/agents/agent.cjs')
 function setup(){const f=fixture();f.work=new WheatFarm(f.agent,1);f.work.approach=async()=>f.work.check();f.work.pause=async()=>f.work.check();return f}
 test('continuous command is separate from one-pass farming',()=>{assert.equal(parse('farm wheat forever').type,'wheatFarm');assert.equal(parse('farm wheat 16').type,'farm')})
 test('harvest only ripe wheat and replant before proceeding',async()=>{
@@ -55,27 +55,27 @@ test('expansion cannot remove the only irrigation for an existing distant plot',
  assert.equal(f.work.irrigationRemains(p),true);assert.equal(f.work.irrigationRemains(p,true),false)
 })
 test('low air surfaces and resumes without cancelling the FARMER controller',async()=>{
- const f=setup(),{Travel}=require('../src/travel.cjs'),original=Travel.prototype.surface
+ const f=setup(),{Travel}=require('../src/navigation/travel.cjs'),original=Travel.prototype.surface
  f.bot.entity.isInWater=true;f.bot.oxygenLevel=5;let surfaced=0,cycles=0
  Travel.prototype.surface=async function(){surfaced++;f.bot.oxygenLevel=20;f.bot.entity.isInWater=false}
  f.work.cycle=async()=>{cycles++;f.work.cancel();f.work.check()}
  try{await f.work.run();assert.equal(surfaced,1);assert.equal(cycles,1);assert.equal(f.work.needsAir,false);assert.equal(f.work.plan.status,'cancelled')}finally{Travel.prototype.surface=original}
 })
 test('Stop still cancels an air recovery before farming can resume',async()=>{
- const f=setup(),{Travel}=require('../src/travel.cjs'),original=Travel.prototype.surface
+ const f=setup(),{Travel}=require('../src/navigation/travel.cjs'),original=Travel.prototype.surface
  f.bot.entity.isInWater=true;f.bot.oxygenLevel=5;f.work.requestAir()
  Travel.prototype.surface=async()=>{f.work.cancel();f.work.check()}
  try{await assert.rejects(f.work.recoverAir(),/Cancelled/);assert.equal(f.work.recoveringAir,false)}finally{Travel.prototype.surface=original}
 })
 test('farm quarry protects lanes, underlying dirt, and other crop patches',()=>{
- const f=setup(),{layout}=require('../src/farm-layout.cjs');f.set('farmland',new Vec3(1,63,1));layout(f.work)
+ const f=setup(),{layout}=require('../src/capabilities/farm-layout.cjs');f.set('farmland',new Vec3(1,63,1));layout(f.work)
  assert.equal(f.work.safeTarget(f.set('dirt',new Vec3(3,63,1))),false)
  assert.equal(f.work.safeTarget(f.set('dirt',new Vec3(3,62,1))),false)
  assert.equal(f.work.safeTarget(f.set('dirt',new Vec3(31,63,1))),true)
  f.set('farmland',new Vec3(31,64,1));assert.equal(f.work.safeTarget(f.bot.blockAt(new Vec3(31,63,1))),false)
 })
 test('expansion uses the established level and repairs holes ahead of shoreline',()=>{
- const f=setup(),{layout,groundTargets}=require('../src/farm-layout.cjs');f.set('farmland',new Vec3(1,63,1));f.set('farmland',new Vec3(2,63,1));f.set('farmland',new Vec3(1,65,2))
+ const f=setup(),{layout,groundTargets}=require('../src/capabilities/farm-layout.cjs');f.set('farmland',new Vec3(1,63,1));f.set('farmland',new Vec3(2,63,1));f.set('farmland',new Vec3(1,65,2))
  assert.equal(layout(f.work).y,63)
  f.set('air',new Vec3(3,63,1));f.set('water',new Vec3(0,63,0));f.set('water',new Vec3(2,63,0))
  const targets=groundTargets(f.work);assert.equal(targets[0].name,'air');assert.ok(targets.every(b=>b.position.y===63))
@@ -110,13 +110,13 @@ test('empty chests are cooled down but do not prevent fallback seed gathering',a
 test('unconfirmed seed withdrawals are not counted and always close storage',async()=>{
  const f=setup();f.set('chest',new Vec3(2,64,1));let closed=false
  f.bot.openContainer=async()=>({containerItems:()=>[{type:registry.itemsByName.wheat_seeds.id,count:20}],withdraw:async()=>{},close(){closed=true}})
- await require('../src/farm-storage.cjs').restockSeeds(f.work)
+ await require('../src/storage/farm-storage.cjs').restockSeeds(f.work)
  assert.equal(f.work.counts.seedsRetrieved,undefined);assert.equal(closed,true);assert.match(f.work.plan.blocker,/not fully confirmed/)
 })
 test('retrieves construction stock from chests without withdrawing seeds',async()=>{
  const f=setup();f.set('chest',new Vec3(2,64,1));let dirt=24
  f.bot.openContainer=async()=>({containerItems:()=>[{type:registry.itemsByName.dirt.id,count:dirt}],withdraw:async(type,meta,count)=>{assert.equal(type,registry.itemsByName.dirt.id);dirt-=count;f.add('dirt',count)},close(){}})
- await require('../src/farm-storage.cjs').restockBuilding(f.work)
+ await require('../src/storage/farm-storage.cjs').restockBuilding(f.work)
  assert.equal(f.work.count('dirt'),24);assert.equal(dirt,0)
 })
 test('expansion does not spend the last eight access blocks',async()=>{

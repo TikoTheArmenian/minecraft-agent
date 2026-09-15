@@ -41,6 +41,25 @@ body[data-bot="barneett"] .bot-tabs button[aria-pressed="true"] { background:#c9
 .bot-tabs { flex-wrap:wrap; }
 
 .cost-panel { margin:20px 0; }
+.supervisor-panel { margin-bottom:20px; }
+.supervisor-panel .eyebrow { margin-top:0; }
+.supervisor-badge { border:1px solid #52604c; background:#111b14; color:#c7dfa9; border-radius:6px; padding:7px 11px; }
+.supervisor-badge[data-mode="autonomous"] { border-color:#9ab66d; }
+#supervisor-settings { display:block; }
+#supervisor-fields { margin:0; min-width:0; }
+.supervisor-config { display:grid; grid-template-columns:minmax(160px,.8fr) minmax(200px,1.2fr); gap:14px; }
+.supervisor-config select { display:block; width:100%; margin-top:6px; }
+.supervisor-objective { grid-column:1 / -1; }
+.supervisor-config textarea { display:block; width:100%; min-height:80px; resize:vertical; margin-top:6px; padding:11px 13px; border:1px solid #354536; border-radius:7px; font:inherit; line-height:1.5; background:#121a14; color:#eef5ed; }
+.supervisor-config textarea:focus,.supervisor-config select:focus-visible { outline:2px solid #a8d884; outline-offset:2px; }
+.supervisor-controls { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+.supervisor-help { max-width:850px; margin-bottom:0; }
+.supervisor-observation { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:20px; border-top:1px solid #354536; margin-top:18px; padding-top:16px; }
+.supervisor-observation h3 { margin:0; color:#c6dcb7; font-size:12px; font-weight:600; }
+.supervisor-observation p { margin:8px 0 0; overflow-wrap:anywhere; }
+#supervisor-feedback { color:#c7e3ab; }
+#supervisor-feedback.problem,#supervisor-error { color:#f0b09e; overflow-wrap:anywhere; }
+@media(max-width:600px) { .supervisor-config,.supervisor-observation { grid-template-columns:minmax(0,1fr); } .supervisor-controls button { flex:1 1 140px; } }
 .cost-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:12px; margin:16px 0; }
 .cost-toolbar label { display:grid; gap:6px; min-width:130px; }
 .cost-toolbar input { max-width:170px; }

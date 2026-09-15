@@ -5,7 +5,7 @@ description: Build or improve Minecraft bot skills in this Mineflayer control-ro
 
 # Building Minecraft bot skills
 
-This guide is for an agent working in this repository. A **bot skill** is executable JavaScript that controls a Minecraft player; this Markdown file teaches you how to build one. Read the current implementation before editing: helpers and fleet configuration evolve. Paths below are relative to the repository root containing `package.json` and `src/agent.cjs`.
+This guide is for an agent working in this repository. A **bot skill** is executable JavaScript that controls a Minecraft player; this Markdown file teaches you how to build one. Read the current implementation before editing: helpers and fleet configuration evolve. Paths below are relative to the repository root containing `package.json` and `src/agents/agent.cjs`.
 
 Implement the skill the user requested, including its controls and observable results. The examples below are design guidance, not requests to implement all of them. Respect newer user decisions. Do not turn an example batch size or an old workaround into a universal constraint.
 
@@ -13,25 +13,25 @@ Implement the skill the user requested, including its controls and observable re
 
 | Concern | Existing implementation to inspect |
 | --- | --- |
-| Skill names, command aliases, factories, API metadata | `src/skills.cjs` |
-| One active task per bot, connection lifecycle, task state, command validation | `src/agent.cjs` |
-| Shared cancellable actions, tool selection, digging, planting, item pickup | `src/work.cjs` |
-| Gathering, crafting, food, crop preparation | `src/survival.cjs` |
-| Continuous production and safety recovery | `src/wheat-farm.cjs`, `src/tree-farm.cjs` |
-| Choosing nearby work after each action | `src/work-order.cjs` |
-| Level fields, irrigation, protected soil | `src/farm-layout.cjs` |
-| Routes, swimming, stairs, bridges, placement checks | `src/travel.cjs`, `src/island-routes.cjs` |
-| Reachable interaction positions and dropped-item goals | `src/block-approach.cjs`, `src/pickup-goal.cjs` |
-| Server block acknowledgements and teleport cancellation | `src/block-updates.cjs`, `src/teleport.cjs` |
-| Remembered farm chests and restocking | `src/farm-storage.cjs` |
-| Central hub, consolidation, chest signs, replacement tool stock | `src/storage-steward.cjs`, `src/storage-crafting.cjs`, `supabase/migrations/` |
-| Named bot conversations, persistent role/location memory, scheduled returns | `src/colony-chat.cjs`; fleet wiring and ticker in `src/server.cjs` |
-| Human chat identity and memory context | `src/llm-chat.cjs` |
-| Shared storage, leases, inventory policy, crafting | `src/storage.cjs`, `src/storage-policy.cjs`, `src/colony.cjs`, `src/crafting.cjs`, `src/storage-crafting.cjs` |
-| Routes, selected bot, controls, map, activity display | `src/server.cjs`, `public/app.js`, `public/world.js`, `public/activity.js`, `public/index.html` |
+| Skill names, command aliases, factories, API metadata | `src/skills/registry.cjs` |
+| One active task per bot, connection lifecycle, task state, command validation | `src/agents/agent.cjs` |
+| Shared cancellable actions, tool selection, digging, planting, item pickup | `src/runtime/work.cjs` |
+| Gathering, crafting, food, crop preparation | `src/skills/survival.cjs` |
+| Continuous production and safety recovery | `src/skills/wheat-farm.cjs`, `src/skills/tree-farm.cjs` |
+| Choosing nearby work after each action | `src/navigation/work-order.cjs` |
+| Level fields, irrigation, protected soil | `src/capabilities/farm-layout.cjs` |
+| Routes, swimming, stairs, bridges, placement checks | `src/navigation/travel.cjs`, `src/navigation/island-routes.cjs` |
+| Reachable interaction positions and dropped-item goals | `src/navigation/block-approach.cjs`, `src/navigation/pickup-goal.cjs` |
+| Server block acknowledgements and teleport cancellation | `src/minecraft/block-updates.cjs`, `src/minecraft/teleport.cjs` |
+| Remembered farm chests and restocking | `src/storage/farm-storage.cjs` |
+| Central hub, consolidation, chest signs, replacement tool stock | `src/storage/steward.cjs`, `src/skills/storage-crafting.cjs`, `supabase/migrations/` |
+| Named bot conversations, persistent role/location memory, scheduled returns | `src/messaging/colony-chat.cjs`; fleet wiring in `src/agents/fleet.cjs`, ticker in `src/main.cjs` |
+| Human chat identity and memory context | `src/messaging/llm-chat.cjs` |
+| Shared storage, leases, inventory policy, crafting | `src/storage/service.cjs`, `src/storage/policy.cjs`, `src/storage/colony.cjs`, `src/storage/crafting.cjs`, `src/skills/storage-crafting.cjs` |
+| Routes, selected bot, controls, map, activity display | `src/web/server.cjs`, `public/app.js`, `public/world.js`, `public/activity.js`, `public/index.html` |
 | Human-readable architecture and movement rationale | `docs/CODE-GUIDE.md`, `docs/movement-research.md` |
 
-The web controller starts through `src/server.cjs`. `bot.cjs` is an older Terminal entry point. Updating it alone will not update dashboard skills. JavaScript uses CommonJS (`require`, `module.exports`). Reuse installed packages; add a dependency only for a demonstrated capability gap. Inspect installed Mineflayer implementations for version-specific behavior; don't guess APIs or casually patch `node_modules`.
+The web controller starts through `src/main.cjs`; HTTP routes live in `src/web/server.cjs`. Keep implementations in the responsibility folders documented in `docs/CODE-GUIDE.md`; do not add loose files or compatibility forwarding modules at the root of `src`. `bot.cjs` is an older Terminal entry point. Updating it alone will not update dashboard skills. JavaScript uses CommonJS (`require`, `module.exports`). Reuse installed packages; add a dependency only for a demonstrated capability gap. Inspect installed Mineflayer implementations for version-specific behavior; don't guess APIs or casually patch `node_modules`.
 
 ## Define the work before writing the loop
 
@@ -49,8 +49,8 @@ Keep decisions separate from physical actions. Planning selects and explains the
 
 ## Implement through the existing task lifecycle
 
-1. Add `src/<skill-name>.cjs`, extending `Work`, or `Survival` when its resource and safety helpers are useful. Inspect constructor side effects: inheriting `Survival` also touches survival state. Do not copy the entire wheat farmer into an unrelated skill.
-2. Give the class a `run()` entry point matching existing factories. Register its `type`, label, aliases, and factory in `src/skills.cjs`. Inspect `Agent.startWork` and parsing for any additional integration; parameterized jobs need validated arguments, not only an alias.
+1. Add `src/skills/<skill-name>.cjs`, extending `Work` from `src/runtime/work.cjs`, or `ResourceWork` from `src/capabilities/resources.cjs` when resource helpers are useful. Do not inherit the runnable `Survival` workflow or copy the entire wheat farmer into an unrelated skill.
+2. Give the class a `run()` entry point matching existing factories. Register its `type`, label, aliases, and factory in `src/skills/registry.cjs`. Inspect `Agent.startWork` and parsing for any additional integration; parameterized jobs need validated arguments, not only an alias.
 3. Add the skill to the actual dashboard selector and command flow. Verify the selected bot receives the request. Check the API metadata, availability rules, and help text; don't assume registering a factory automatically updates every UI control.
 4. Publish plain, bounded state: phase, current decision, target, confirmed counts, obstacle, next retry time. Keep Mineflayer objects, promises, windows, and credentials out of browser state.
 5. Add meaningful tests and validate the result. A code change is not loaded into an existing Node process automatically.
@@ -61,10 +61,10 @@ Keep one active work controller per bot. Subskills such as gathering torch suppl
 
 A skill and a player profile are separate. Existing players can run different skills; adding a factory alone does not create a new connected bot. When a new named player is requested:
 
-- Inspect the fleet in `src/server.cjs`. Give the new `Agent` a unique Minecraft username, fleet/API ID, and dedicated `dataDir`; share the backend `Colony` transport, not inventories or work controllers.
+- Inspect profiles in `src/agents/profiles.cjs` and composition in `src/agents/fleet.cjs`. Give the new `Agent` a unique Minecraft username, fleet/API ID, and dedicated `dataDir`; share the backend `Colony` transport, not inventories or work controllers.
 - Wire the agent into the fleet and its `fleet` references, refresh/coordination ticker, connection controls, selected-bot UI, and relevant profile/count assumptions. Inspect `public/app.js` and `public/index.html` rather than assuming the UI is generated from the backend.
 - Keep logs, jobs, chat configuration, saved places, and `colony-memory.json` isolated by player. Scope world-specific memory by world and dimension. Never copy another bot's live session or credentials into a profile.
-- Add the profession and required tools/supplies to the current coordination model. `ROLES`, `NEEDS`, and `SUPPLIES` in `src/colony-chat.cjs` currently contain explicit role defaults; arbitrary new professions are not inferred automatically. If changing professions on an existing player, deliberately update its persisted role and Sam's learned role rather than relying on a new display label.
+- Add the profession and required tools/supplies to the current coordination model. `ROLES`, `NEEDS`, and `SUPPLIES` in `src/messaging/colony-chat.cjs` currently contain explicit role defaults; arbitrary new professions are not inferred automatically. If changing professions on an existing player, deliberately update its persisted role and Sam's learned role rather than relying on a new display label.
 - Test that commands, SSE/state, connection changes, Stop, and memory affect only the selected player. Ensure human chat uses that player's identity: an earlier shared chat helper hardcoded “Marc,” making other bots respond as him.
 
 ### Cancellation, deadlines, and cleanup
@@ -75,7 +75,7 @@ A skill and a player profile are separate. Existing players can run different sk
 - Clean up listeners, intervals, windows, and temporary movement settings in `finally`. Keep the task lock until its asynchronous cleanup actually finishes.
 - Distinguish an expected blocked target from cancellation and fatal failure. A broad `catch` that keeps looping can make Stop ineffective or hide drowning.
 - Reuse low-air recovery where appropriate: interrupt ordinary work, surface, confirm recovered air, then resume. If recovery cannot succeed within its limit, report the blocker instead of spinning forever.
-- Teleportation invalidates old routes and interactions. Preserve `src/teleport.cjs`: meaningful server displacement cancels the old task; small position corrections should not. Do not automatically resume destructive work in a new location.
+- Teleportation invalidates old routes and interactions. Preserve `src/minecraft/teleport.cjs`: meaningful server displacement cancels the old task; small position corrections should not. Do not automatically resume destructive work in a new location.
 
 **Failure we observed:** teleporting Marc mid-dig left a wait for an old block update. The wait never completed, and the hung-action safeguard disconnected him. Pass the work's abort signal to `watchBlock`; cancelling an observation must release it without pretending Minecraft confirmed success. Truly unresolved side-effecting library operations still require the existing isolation safeguards.
 
@@ -222,7 +222,7 @@ Keep explanations readable: comment why a reserve, retry limit, acknowledgement,
 ## Building-stock policy (current user requirement)
 
 Keep 128 of each carried supported building material (including dirt and cobblestone) out of
-normal surplus deposits and recipe spending. Reuse `src/building-supplies.cjs`: when combined
+normal surplus deposits and recipe spending. Reuse `src/capabilities/building-supplies.cjs`: when combined
 usable building stock falls below eight, refill toward 128 total, taking shared storage first
 and gathering only the shortfall. Dirt-only climbing jobs request 128 dirt specifically.
 The low-stock trigger and full-batch target are distinct; do not revert to 12/16/32-block trips.
@@ -243,7 +243,7 @@ or placement space needs a visible bounded blocker, not repeated duplicate craft
 ### Warehouse revision: double chests and armor
 
 The current warehouse implementation supersedes the earlier single-chest expansion policy.
-Read `src/warehouse-layout.cjs` for the fixed south-facing grid, floor/aisle checks, persistent
+Read `src/storage/warehouse-layout.cjs` for the fixed south-facing grid, floor/aisle checks, persistent
 partial-bay recovery, and verification before registration. Build both halves before exposing
 a 54-slot container to shared stock. Do not join an already registered single chest: its ID,
 leases, operations and reservations require an explicit topology migration. Keep old stock
@@ -263,3 +263,14 @@ until canonical identity and the 54-slot window are confirmed. Prefer an availab
 table even for intermediate planks so the installed crafting implementation synchronizes its
 window before verification. Retrieve/craft labels if supplied signs run out, and keep them
 on the planned front face. Test delayed partner updates and resuming a one-half build.
+
+
+## Runtime and supervisor boundaries
+
+Read `docs/AGENT-RUNTIME.md` for the current module map. Add new skills to `src/skills/registry.cjs` with a matching `src/runtime/skill-contracts.cjs` contract. Use `ResourceWork` for resource capabilities, never inherit or instantiate another runnable skill for its helpers. Bot identity/defaults/capabilities come from validated profiles, never username branches.
+
+All physical admission goes through `SkillRunner`; structured adapters use `CommandService`. Preserve request IDs, world/connection/objective fences, one-owner settlement, and durable operation journals. A normal switch requests `handoffRequested` and yields through `checkpoint()` only at a verified safe boundary; Stop aborts immediately. Carry fatal checkpoint errors into runtime settlement even when a legacy skill returns a partial result. Never permit a queued supervisor switch after Pause, a new goal, or a human assignment.
+
+Model decisions are structured data validated against the same skill schemas. Keep credential handling and provider calls outside deterministic skills. Supervisors start off/paused; tests use fake providers and never need an API key. Peer messages are observations/proposals, not human authority. Confirmed effects, receipt ACKs, run acceptance, and task completion remain separate facts.
+
+Use `npm run verify` for the full local gate. Type checking currently covers the application input/schema boundary; other legacy JavaScript is linted and behavior-tested. Real database integration requires the explicitly configured disposable container; the CI workflow provides it.

@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict')
-const {ActionChat,announcement}=require('../src/action-chat.cjs')
+const {ActionChat,announcement}=require('../src/messaging/action-chat.cjs')
 test('INFO work is announced while movement, inbound chat and duplicate LLM replies are excluded',()=>{
  for(const [event,text] of [['path.update','Path success'],['travel.swimming','Swimming'],['action.start','Walk or swim to block 1,2,3'],['action.start','Face open water'],['command','farmer'],['chat.received','Player: Marc hello'],['bot.message','[Chat to Player] Hello']])assert.equal(announcement(event,text,'info'),null)
  assert.equal(announcement('action.start','Craft chest','info'),'Craft chest')

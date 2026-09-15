@@ -8,4 +8,5 @@ public/textures/
 .env
 .env.*
 !.env.example
+bot-profiles.local.json
 supabase/.temp/

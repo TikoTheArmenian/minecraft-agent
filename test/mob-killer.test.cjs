@@ -1,9 +1,9 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { fixture, Vec3 } = require('./helpers/survival-fixture.cjs')
-const { MobKiller, parseMobKiller, chooseWeapon } = require('../src/mob-killer.cjs')
-const { parse } = require('../src/agent.cjs')
-const storage = require('../src/storage.cjs')
+const { MobKiller, parseMobKiller, chooseWeapon } = require('../src/skills/mob-killer.cjs')
+const { parse } = require('../src/agents/agent.cjs')
+const storage = require('../src/storage/service.cjs')
 
 let nextId = 100
 function mob(h, name, x, z, extra = {}) {

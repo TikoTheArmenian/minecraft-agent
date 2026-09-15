@@ -54,7 +54,7 @@ items. It keeps two free inventory slots for crafting and reports missing ingred
 
 Tools and modified items stay carried during surplus deposits. Explicit chest organization can
 move them without merging unlike metadata. Saplings, food, seeds, torches and travel blocks
-have conservative retained quantities in `src/storage-policy.cjs`; recipe plans also respect
+have conservative retained quantities in `src/storage/policy.cjs`; recipe plans also respect
 these reserves. An explicit crafted output is stored even when its category is normally retained.
 
 Marc registers newly created farm chests and uses shared deposits/restocking. With Supabase

@@ -1,7 +1,7 @@
 # Ore finder (Orin)
 
 Orin scans loaded terrain for ore, reports what is there, mines the ore that is already exposed,
-and stores raw ore batches in the shared hub. Implementation: `src/ore-finder.cjs`
+and stores raw ore batches in the shared hub. Implementation: `src/skills/ore-finder.cjs`
 (`OreFinder extends Survival`, `parseOreFinder`); tests: `test/ore-finder.test.cjs`.
 
 ## Commands

@@ -1,7 +1,7 @@
 const {test}=require('node:test')
 const assert=require('node:assert/strict')
 const {fixture,Vec3,registry}=require('./helpers/survival-fixture.cjs')
-const {parse}=require('../src/agent.cjs')
+const {parse}=require('../src/agents/agent.cjs')
 
 test('survival and survey have simple commands',()=>{
   assert.equal(parse('Survive!').type,'survive');assert.equal(parse('look around').type,'scan')

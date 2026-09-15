@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Four bots · Control room</title>
+    <title>Bot fleet · Control room</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="/icons.js" defer></script>
     <script src="/app.js" defer></script>
@@ -12,6 +12,7 @@
     <script src="/activity.js" defer></script>
     <script src="/storage.js" defer></script>
     <script src="/costs.js" defer></script>
+    <script src="/supervisor.js" defer></script>
 </head>
 
 <body>
@@ -88,6 +89,27 @@
                     run <code>npm run logs</code> in the project folder. Saved file: <code
                         id="log-file">data/logs/activity.log</code> (rotates at 2 MB).</p>
             </details>
+        </section>
+        <section class="panel supervisor-panel" aria-labelledby="supervisor-heading">
+            <div class="section-title">
+                <div><p class="eyebrow">PER-BOT DECISIONS</p><h2 id="supervisor-heading" data-bot-label="{bot} · supervisor">Bot supervisor</h2></div>
+                <span id="supervisor-badge" class="supervisor-badge">Off</span>
+            </div>
+            <p id="supervisor-status" class="muted" role="status">Waiting for this bot’s controller.</p>
+            <form id="supervisor-settings">
+                <fieldset id="supervisor-fields" disabled>
+                    <div class="supervisor-config">
+                        <label for="supervisor-mode">Mode<select id="supervisor-mode" name="mode"><option value="off">Off</option><option value="shadow">Shadow · proposals only</option><option value="autonomous">Autonomous · run skills</option></select></label>
+                        <label for="supervisor-model">Model<input id="supervisor-model" name="model" maxlength="80" placeholder="Configured model" autocomplete="off" spellcheck="false"></label>
+                        <label class="supervisor-objective" for="supervisor-objective">Objective<textarea id="supervisor-objective" name="objective" rows="3" maxlength="1000" placeholder="For example: make eight glass and ask another bot for sand when needed."></textarea></label>
+                    </div>
+                    <div class="supervisor-controls"><button id="supervisor-save" type="submit">Save settings</button><button id="supervisor-resume" class="secondary" type="button" disabled>Resume</button><button id="supervisor-pause" class="secondary" type="button" disabled>Pause decisions</button></div>
+                </fieldset>
+            </form>
+            <p id="supervisor-feedback" class="small" role="status" hidden></p>
+            <p class="small muted supervisor-help">Saving settings pauses the supervisor. Resume starts decisions in the selected mode. Shadow and Autonomous use the configured model and API budget. Pause stops new decisions; the bot’s Stop control also cancels physical work.</p>
+            <div class="supervisor-observation"><div><h3>Latest decision</h3><p id="supervisor-decision" class="muted">No decisions yet.</p></div><div><h3>Daily allowance</h3><p id="supervisor-usage" class="muted">Waiting for usage.</p></div></div>
+            <p id="supervisor-error" role="alert" hidden></p>
         </section>
         <div class="world-layout">
             <section class="panel map-panel">

@@ -3,9 +3,9 @@ const assert=require('node:assert/strict')
 const fs=require('node:fs')
 const os=require('node:os')
 const path=require('node:path')
-const {ActivityLog,survivalAvailability}=require('../src/activity-log.cjs')
-const {Agent}=require('../src/agent.cjs')
-const {createApp}=require('../src/server.cjs')
+const {ActivityLog,survivalAvailability}=require('../src/infra/activity-log.cjs')
+const {Agent}=require('../src/agents/agent.cjs')
+const {createApp}=require('../src/web/server.cjs')
 const {fixture}=require('./helpers/survival-fixture.cjs')
 function temp(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'walkbot-log-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return dir}
 test('readiness distinguishes idle Creative, active work, stopping and ready Survival',()=>{

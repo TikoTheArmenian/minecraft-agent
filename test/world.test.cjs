@@ -1,7 +1,7 @@
 const {test}=require('node:test')
 const assert=require('node:assert/strict')
 const {fixture,Vec3}=require('./helpers/survival-fixture.cjs')
-const {buildMap,MapStore}=require('../src/world.cjs')
+const {buildMap,MapStore}=require('../src/world/observations.cjs')
 
 test('map follows the nearby player and uses actual block names and heights',()=>{
   const f=fixture();f.bot.players.Alex={username:'Alex',entity:{position:new Vec3(12,65,4)}}

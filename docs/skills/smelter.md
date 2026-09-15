@@ -1,6 +1,6 @@
 # Smelter (Forge)
 
-Forge (`fleet id forge`, type `smelter`, `src/smelter.cjs`) smelts shared raw materials in furnaces
+Forge (`fleet id forge`, type `smelter`, `src/skills/smelter.cjs`) smelts shared raw materials in furnaces
 beside the storage hub and stores the output; Sam's iron-tool buffer consumes the iron ingots.
 
 ## Commands

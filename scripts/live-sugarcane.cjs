@@ -12,10 +12,10 @@
  */
 const path = require('node:path')
 const { Vec3 } = require('vec3')
-const { Agent } = require('../src/agent.cjs')
-const { Colony } = require('../src/colony.cjs')
-const { profiles, publicProfile } = require('../src/fleet.cjs')
-const { groupColumns, plantable, SOIL } = require('../src/sugarcane-farm.cjs')
+const { Agent } = require('../src/agents/agent.cjs')
+const { Colony } = require('../src/storage/colony.cjs')
+const { profiles, publicProfile } = require('../src/agents/fleet.cjs')
+const { groupColumns, plantable, SOIL } = require('../src/skills/sugarcane-farm.cjs')
 
 function args() {
   const out = { pre: [], at: [], radius: 32, world: 'Agent Playground', wait: 6 }

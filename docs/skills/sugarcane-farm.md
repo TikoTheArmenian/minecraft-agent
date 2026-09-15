@@ -1,6 +1,6 @@
 # Sugarcane farmer (bot Cane)
 
-`src/sugarcane-farm.cjs` · class `SugarcaneFarm` · fleet id `cane` · command `farm sugarcane`
+`src/skills/sugarcane-farm.cjs` · class `SugarcaneFarm` · fleet id `cane` · command `farm sugarcane`
 (aliases `sugarcane farmer`, `start sugarcane farmer`, `farm sugar cane`).
 
 A continuous producer: it harvests grown sugar cane above the base, replants along water,

@@ -1,8 +1,8 @@
 const {test}=require('node:test')
 const assert=require('node:assert/strict')
 const {fixture,Vec3,registry}=require('./helpers/travel-fixture.cjs')
-const {Travel,TravelMovements}=require('../src/travel.cjs')
-const {installPassages}=require('../src/passages.cjs')
+const {Travel,TravelMovements}=require('../src/navigation/travel.cjs')
+const {installPassages}=require('../src/navigation/passages.cjs')
 const {goals}=require('mineflayer-pathfinder')
 const Move=require('mineflayer-pathfinder/lib/move')
 const Block=require('prismarine-block')(registry)
@@ -20,7 +20,7 @@ for(const name of ['oak_door','copper_door','oak_fence_gate'])test(`real physics
  for(let x=-2;x<=6;x++)for(const z of [-1,1])for(let y=64;y<=66;y++)h.set('stone',new Vec3(x,y,z))
  let uses=0
  h.bot.activateBlock=async()=>assert.fail('must use confirmed passage interaction')
- h.bot._client.write=(packet,data)=>{
+ h.bot._client.write=(packet,_data)=>{
    assert.equal(packet,'block_place');uses++
    const lower=h.set(name,p,{open:true});h.bot._client.emit('block_change',{location:p,type:lower.stateId})
    if(name.endsWith('_door')){const upper=h.set(name,p.offset(0,1,0),{open:true,half:'upper'});h.bot._client.emit('block_change',{location:upper.position,type:upper.stateId})}

@@ -1,8 +1,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { fixture, Vec3 } = require('./helpers/survival-fixture.cjs')
-const { PracticeMovement } = require('../src/practice-movement.cjs')
-const { parse } = require('../src/agent.cjs')
+const { PracticeMovement } = require('../src/skills/practice-movement.cjs')
+const { parse } = require('../src/agents/agent.cjs')
 function setup() { const h = fixture(); return {...h, work: new PracticeMovement(h.agent,1)} }
 
 test('practice movement aliases dispatch the continuous skill', () => {
@@ -53,4 +53,17 @@ test('removing the target interrupts travel and scans again', {timeout:4000}, as
   h.work.pause=async()=>{h.work.cancel();h.work.check()}
   await h.work.run()
   assert.equal(interrupted,true);assert.equal(h.work.task.status,'cancelled')
+})
+test('a requested handoff settles the route and records actual arrival before switching', async () => {
+  const h = setup(), target = new Vec3(5, 64, 0)
+  h.set('sponge', target)
+  let routes = 0
+  h.work.travel = async () => { routes++; h.work.requestHandoff(); h.bot.entity.position = target.offset(-1, 0, 0) }
+  h.work.pause = async () => h.work.check()
+  await assert.rejects(h.work.run(), { code: 'HANDOFF' })
+  assert.equal(routes, 1)
+  assert.equal(h.work.task.reasonCode, 'HANDOFF')
+  assert.equal(h.work.task.checkpoint.data.phase, 'route-settled')
+  assert.equal(h.work.effects[0].kind, 'arrival')
+  assert.equal(h.work.targetChanged, false)
 })
