@@ -67,10 +67,10 @@ const skills = [
     className: 'TreeFarm',
     taskSkill: 'TREE FARMER',
     description:
-      'Mine whole trees from the base upward, climb with dirt, recover the climbing blocks and replant matching saplings.',
+      'Starts from a nearby tree, retrieves or crafts tools, gathers dirt, harvests whole trees and replants matching saplings.',
     limits:
-      'Continuous tree farming. Keeps 128 dirt for access, recovers climbing blocks and replants. Stop cancels.',
-    ready: 'Ready to harvest full trees and replant saplings.',
+      'Continuous tree farming. Collects saplings after cutting and saves unfinished planting while working on other trees. Stop cancels.',
+    ready: 'Start near a mature tree; tools, dirt and saplings are gathered as needed.',
   },
   {
     type: 'torches',

@@ -407,8 +407,10 @@ test('container cleanup stays scoped to the original world after session changes
 })
 test('storage API validates structured goals and scopes them to the selected bot', async (t) => {
   const { createApp } = require('../src/web/server.cjs')
+  const { EventEmitter } = require('node:events')
   const calls = []
-  const make = (name) => ({
+  const make = (name) => Object.assign(new EventEmitter(), {
+    id: name.toLowerCase(),
     username: name,
     state: { world: 'one', dimension: 'overworld' },
     log() {},

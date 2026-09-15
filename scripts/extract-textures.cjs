@@ -108,10 +108,10 @@ function extract(jar, log = () => {}) {
       return model
     }
     // Walk the parent chain (leaf first) and merge textures so child values win.
-    const resolveChain = (itemName) => {
+    const resolveChain = (itemName, modelRef = `item/${itemName}`) => {
       const chain = [],
         textures = {}
-      let ref = `item/${itemName}`
+      let ref = modelRef
       for (let depth = 0; ref && depth < 24; depth++) {
         const name = strip(ref),
           model = loadModel(name)
@@ -244,7 +244,59 @@ function extract(jar, log = () => {}) {
       if (entry) items[item.name] = entry
       else missing.push(item.name)
     }
+    // Resolve six actual block-model faces in Three.js box material order.
+    const blocks = {}
+    for (const block of registry.blocksArray) {
+      const name = block.name
+      const modelName =
+        {
+          wheat: 'wheat_stage7',
+          tall_grass: 'tall_grass_bottom',
+          large_fern: 'large_fern_bottom',
+          wall_torch: 'torch',
+          soul_wall_torch: 'soul_torch',
+          redstone_wall_torch: 'redstone_torch',
+          nether_wart: 'nether_wart_stage2',
+          sweet_berry_bush: 'sweet_berry_bush_stage3',
+          carrots: 'carrots_stage3',
+          potatoes: 'potatoes_stage3',
+          beetroots: 'beetroots_stage3',
+        }[name] || name
+      const { chain, textures, lookup } = resolveChain(name, `block/${modelName}`)
+      const elements = chain.find((entry) => entry.model?.elements?.length)?.model.elements || []
+      const modelFaces = elements[0]?.faces || {}
+      const fallback = texture(
+        lookup(
+          textures.all || textures.side || textures.cross || textures.crop || textures.particle,
+        ),
+      )
+      const faces = ['east', 'west', 'up', 'down', 'south', 'north'].map((direction) => {
+        const face = modelFaces[direction]
+        const file = texture(lookup(face?.texture)) || fallback
+        return file
+          ? {
+              file,
+              ...(face?.tintindex !== undefined || CODE_TINTED.has(name)
+                ? { tint: tintFor(name) }
+                : {}),
+            }
+          : null
+      })
+      if (faces.some(Boolean)) blocks[name] = faces.map((face) => face || faces.find(Boolean))
+    }
+    const bars = texture('block/iron_bars')
+    if (bars) blocks.iron_bars = Array.from({ length: 6 }, () => ({ file: bars }))
+    for (const name of ['water', 'bubble_column', 'lava']) {
+      const file = texture(`block/${name === 'lava' ? 'lava' : 'water'}_still`)
+      if (file)
+        blocks[name] = Array.from({ length: 6 }, () => ({
+          file,
+          ...(name !== 'lava' ? { tint: '#3f76e4' } : {}),
+        }))
+    }
     const manifest = {
+      blockTextureVersion: 3,
+      blocks,
       version: VERSION,
       generatedAt: new Date().toISOString(),
       source: jar,
@@ -265,7 +317,12 @@ function extract(jar, log = () => {}) {
 // without icons, it just shows labelled tiles instead.
 function ensureTextures({ force = false, jar, log = () => {} } = {}) {
   try {
-    if (!force && fs.existsSync(MANIFEST)) return { ok: true, existing: true }
+    if (
+      !force &&
+      fs.existsSync(MANIFEST) &&
+      JSON.parse(fs.readFileSync(MANIFEST, 'utf8')).blockTextureVersion === 3
+    )
+      return { ok: true, existing: true }
     const found = findJar(jar)
     if (!found) {
       log(

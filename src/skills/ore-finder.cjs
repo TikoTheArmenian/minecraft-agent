@@ -8,7 +8,7 @@
 
 const { ResourceWork } = require('../capabilities/resources.cjs')
 const { Work, chooseTool } = require('../runtime/work.cjs')
-const { nearbyFirst } = require('../navigation/work-order.cjs')
+const { BlockCollection } = require('../capabilities/block-collection.cjs')
 const { isAir } = require('../world/observations.cjs')
 
 const ORES = ['coal', 'iron', 'copper', 'gold', 'redstone', 'lapis', 'diamond', 'emerald']
@@ -366,49 +366,73 @@ class OreFinder extends ResourceWork {
     let mined = 0,
       skipped = 0,
       failed = 0
-    for (const block of nearbyFirst(this, targets)) {
-      this.check()
-      const id = `${block.position}:${block.name}`
-      if (this.failedTargets.has(id)) continue
-      const live = this.bot.blockAt(block.position),
-        ore = live && oreOf(live.name)
-      if (!ore || !this.safeTarget(live)) continue
-      if (!this.canMine(live)) {
+    this.collection ||= new BlockCollection(this)
+    // Do not let cooled-down or under-equipped nearby targets repeatedly spend
+    // the entire batch budget and starve reachable ores farther away.
+    const eligible = targets.filter((block) => {
+      if (this.failedTargets.has(`${block.position}:${block.name}`)) return false
+      if (!this.canMine(block)) {
         skipped++
-        continue
+        return false
       }
-      if (this.shouldStore()) await this.deposit('batch ready or inventory nearly full')
-      if (this.bot.inventory.emptySlotCount() < 2)
-        throw blocked(
-          this.agent.colony?.enabled
-            ? 'Inventory is full and shared storage could not take the ore. Add hub capacity, then restart.'
-            : `Inventory is full. Empty ${this.name}’s inventory before continuing (shared storage is not configured).`,
+      return true
+    })
+    await this.collection.collect(eligible, {
+      maxBlocks: 32,
+      visit: async (block) => {
+        this.check()
+        const id = `${block.position}:${block.name}`
+        if (this.failedTargets.has(id)) return
+        const live = this.bot.blockAt(block.position),
+          ore = live && oreOf(live.name)
+        if (!ore || !this.safeTarget(live)) return
+        if (!this.canMine(live)) {
+          skipped++
+          return
+        }
+        if (this.shouldStore()) await this.deposit('batch ready or inventory nearly full')
+        if (this.bot.inventory.emptySlotCount() < 2)
+          throw blocked(
+            this.agent.colony?.enabled
+              ? 'Inventory is full and shared storage could not take the ore. Add hub capacity, then restart.'
+              : `Inventory is full. Empty ${this.name}’s inventory before continuing (shared storage is not configured).`,
+          )
+        this.check()
+        // A storage trip can take time. Do not let harvest's fresh read turn a
+        // replaced ore into permission to collect a different resource.
+        const current = this.bot.blockAt(block.position)
+        if (!current || current.stateId !== block.stateId) return
+        this.decide(
+          `Mining ${live.name.replaceAll('_', ' ')} at ${key(live.position)} · ${this.counts.mined} ores mined, ${this.plan.stored} stored.`,
         )
-      this.decide(
-        `Mining ${live.name.replaceAll('_', ' ')} at ${key(live.position)} · ${this.counts.mined} ores mined, ${this.plan.stored} stored.`,
-      )
-      const issuesBefore = this.issues.length
-      if (await this.harvest(live)) {
-        mined++
-        this.plan.mined[ore] = (this.plan.mined[ore] || 0) + 1
-        this.agent.publish()
-        this.checkpoint({ phase: 'ore-collected' })
-      } else if (this.failedTargets.has(id)) {
-        failed++
-        this.cooldowns.set(id, Date.now() + TARGET_COOLDOWN_MS)
-        // One unreachable cliff face is one failed route, not a fresh search for each ore in it.
-        if (
-          /route/i.test(this.issues.slice(issuesBefore - this.issues.length || undefined).join(' '))
-        )
-          for (const other of targets) {
-            const otherId = `${other.position}:${other.name}`
-            if (other.position.distanceTo(live.position) <= 3 && !this.failedTargets.has(otherId)) {
-              this.failedTargets.add(otherId)
-              this.cooldowns.set(otherId, Date.now() + TARGET_COOLDOWN_MS)
+        const issuesBefore = this.issues.length
+        if (await this.harvest(current)) {
+          mined++
+          this.plan.mined[ore] = (this.plan.mined[ore] || 0) + 1
+          this.agent.publish()
+          this.checkpoint({ phase: 'ore-collected' })
+        } else if (this.failedTargets.has(id)) {
+          failed++
+          this.cooldowns.set(id, Date.now() + TARGET_COOLDOWN_MS)
+          // One unreachable cliff face is one failed route, not a fresh search for each ore in it.
+          if (
+            /route/i.test(
+              this.issues.slice(issuesBefore - this.issues.length || undefined).join(' '),
+            )
+          )
+            for (const other of targets) {
+              const otherId = `${other.position}:${other.name}`
+              if (
+                other.position.distanceTo(live.position) <= 3 &&
+                !this.failedTargets.has(otherId)
+              ) {
+                this.failedTargets.add(otherId)
+                this.cooldowns.set(otherId, Date.now() + TARGET_COOLDOWN_MS)
+              }
             }
-          }
-      }
-    }
+        }
+      },
+    })
     this.plan.needsTool = skipped
     this.plan.failed = failed
     return mined

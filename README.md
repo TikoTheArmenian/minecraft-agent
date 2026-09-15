@@ -134,7 +134,7 @@ Skills need **Survival mode** and a connected bot. Start them from the skill sel
 | --- | --- |
 | **Survive** | Starter routine: wood, tools, exposed iron (no smelting), food, and a small irrigated farm. About 20 minutes, resources within 80 blocks. It does not hunt, fish, fight, or build shelter. |
 | **FARMER** | Continuous wheat: harvest, replant, expand irrigated plots, light the area, and store surplus in chests. Runs until Stop. |
-| **Tree farmer** | Cuts whole trees (oak, birch, spruce, jungle, acacia, dark oak, cherry), climbs with dirt, recovers the supports, and replants matching saplings. Unfinished trees are saved across Stop. |
+| **Tree farmer** | Starts near a mature tree without starter supplies. Retrieves or crafts an axe and shovel, gathers dirt for access, and cuts whole trees (oak, birch, spruce, jungle, acacia, dark oak, cherry). Collects saplings after cutting, restores missing planting dirt, and saves unfinished planting while harvesting other trees. Tree work survives Stop and restart. |
 | **Get torches** | Crafts 16 torches from coal, charcoal, or a furnace run. FARMER also stocks and places a few lights on its own. |
 | **Sugarcane farmer** | Harvests grown cane above the base, replants along water, expands the patch, and stores surplus. |
 | **Ore finder** | Scans loaded terrain for exposed ore, mines reachable veins, and stores raw ore. Does not tunnel or dig straight down. |
@@ -382,3 +382,11 @@ Start with the code guide and follow the existing module boundaries. Keep creden
 ## Acknowledgments
 
 Built on Mineflayer and the PrismarineJS ecosystem. Minecraft is a trademark of Mojang Studios. This project is independent and is not an official Minecraft product.
+
+### 3D surroundings viewer
+
+Choose a connected bot, then use **Follow** to select that bot or a nearby loaded player in its world. The React Three Fiber viewer defaults to an **11 × 5 × 11** block volume and refreshes every second. The size selector also offers 17 × 5 × 17 and 7, 11, and 15 block cubes. Shallow views sample only five centered vertical layers. Drag to rotate, scroll or pinch to zoom, right-drag to pan, and use **Reset camera** to recenter. Click blocks and player markers to inspect them. **Hide overhead blocks** provides a cutaway.
+
+Pink lines show the selected bot's actual pathfinder waypoints, clipped to the volume and visible through terrain. Paths clear on stop, completion, reset, teleport, or world changes. Unknown chunks remain empty and are counted below the viewer. Block collision shapes preserve slabs and stairs. Blocks use face textures extracted from the installed Minecraft 1.21.1 client, with pixel-sharp filtering and default biome tints. Water spans the full block footprint; farmland is 15/16 of a block tall. Grass, torches, wheat and other crops use two upright crossed texture planes with no top face. Other plants and fluids use simplified shapes, and animated textures currently show their first frame. The expandable **Top-down map · movement and mining** retains the existing action controls.
+
+`npm run web` and `npm start` build the local browser bundle automatically. After editing `public/map-viewer.mjs`, run `npm run build:web` and refresh the browser; restart the web server for backend changes. If launching `node src/main.cjs` directly, build first.

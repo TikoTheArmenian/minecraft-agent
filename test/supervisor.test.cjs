@@ -29,6 +29,24 @@ function fixture(t, options = {}) {
 }
 function activate(supervisor, mode = 'autonomous') { supervisor.configure({ mode, objective: 'Gather stone for the shared shelter.' }); supervisor.resume() }
 
+test('supervisor decisions emit one detached event with the final disposition', async t => {
+  for (const status of ['shadow', 'admitted', 'rejected']) {
+    const f = fixture(t), events = []
+    f.agent.emit = (type, payload) => events.push({ type, payload })
+    if (status === 'rejected') f.supervisor.apply = () => { throw new Error('Admission failed') }
+    activate(f.supervisor, status === 'shadow' ? 'shadow' : 'autonomous')
+    await f.supervisor.tick()
+    assert.equal(events.length, 1)
+    assert.equal(events[0].type, 'supervisor.decision')
+    assert.equal(events[0].payload.status, status)
+    assert.deepEqual(events[0].payload, f.supervisor.lastDecision)
+    f.supervisor.lastDecision.status = 'changed'
+    assert.equal(events[0].payload.status, status)
+    await f.supervisor.tick()
+    assert.equal(events.length, 1, 'publishing idle state does not repeat a decision')
+  }
+})
+
 test('off by default; configuration is paused and only explicit resume triggers inference', async t => {
   const f = fixture(t)
   assert.equal(f.supervisor.snapshot().mode, 'off')

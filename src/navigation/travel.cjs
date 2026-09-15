@@ -31,6 +31,17 @@ const BUILDING_BLOCKS = [
 ]
 const DIRECTIONS = [new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
 const MAX_STEPS = 16 // Bounded construction per route, with confirmed blocks and safe staging.
+const TELEMETRY_LIMIT = 128
+const point = (p) => ({ x: p.x, y: p.y, z: p.z })
+const searchDetails = (result, searchRadius) => ({
+  status: result.status,
+  searchRadius: Number.isFinite(searchRadius) ? searchRadius : null,
+  visitedNodes: result.visitedNodes ?? null,
+  generatedNodes: result.generatedNodes ?? null,
+  cost: result.cost ?? null,
+  time: result.time ?? null,
+  updatedAt: Date.now(),
+})
 
 // Weighted A*: trade shortest-path optimality for fewer expanded nodes on long
 // trips. All collision, drop, water and digging constraints remain in Movements.
@@ -58,7 +69,7 @@ function installReliableGoto(bot) {
   installPassages(bot)
   // The package's goto helper resolves on ANY empty path, including an unfinished
   // A* slice. Waiting for the real terminal event prevents premature "arrival".
-  bot.pathfinder.goto = (goal) =>
+  bot.pathfinder.goto = (goal, { onSegment } = {}) =>
     new Promise((resolve, reject) => {
       let settled = false,
         segmentEndpoint = null
@@ -95,6 +106,7 @@ function installReliableGoto(bot) {
             // The library already installed this path. Follow it instead of
             // clearing it and performing a second search for the same endpoint.
             segmentEndpoint = endpoint.floored()
+            onSegment?.(segmentEndpoint)
           } else finish(failure('Timeout', 'No useful route within the search budget.'))
         } else if (result.status === 'success' && !result.path.length && reached(bot, goal))
           finish()
@@ -336,6 +348,9 @@ class Travel {
       phase: 'planning',
       label: 'Finding a walking or swimming route',
       blocksPlaced: 0,
+      route: { path: [], search: null, partialEndpoint: null, segments: [] },
+      search: null,
+      events: [],
     }
     this.work.task.travel = this.activity
   }
@@ -344,8 +359,60 @@ class Travel {
     if (Date.now() >= this.deadline)
       throw new Error('Travel time limit reached. Review the route in Bot activity.')
   }
-  log(event, message, level = 'info') {
-    this.work.agent.log?.(event, message, level, { taskId: this.work.id })
+  log(event, message, level = 'info', details = {}) {
+    this.work.agent.log?.(event, message, level, { taskId: this.work.id, ...details })
+  }
+  publishTelemetry(force = false, routeChanged = false) {
+    // Keep every slice in state, but don't broadcast a full state on every A* tick.
+    if (!force && Date.now() - (this.lastTelemetryAt ?? -Infinity) < 1000) return
+    this.lastTelemetryAt = Date.now()
+    if (routeChanged) this.publishRoute()
+    this.work.agent.publish()
+  }
+  publishRoute() {
+    this.work.agent.emit?.(
+      'travel.route',
+      structuredClone({
+        taskId: this.work.id,
+        runId: this.work.task.runId ?? null,
+        status: this.activity.status,
+        destination: this.activity.destination ?? null,
+        route: this.activity.route,
+      }),
+    )
+  }
+  recordEvent(type, reason, details = {}) {
+    const event = {
+      type,
+      reason,
+      at: Date.now(),
+      position: point(this.bot.entity.position),
+      phase: this.activity.phase,
+      destination: this.activity.destination ? { ...this.activity.destination } : null,
+      ...details,
+    }
+    this.activity.events.push(event)
+    if (this.activity.events.length > TELEMETRY_LIMIT) this.activity.events.shift()
+    this.work.agent.emit?.(`travel.${type}`, {
+      taskId: this.work.id,
+      runId: this.work.task.runId ?? null,
+      ...event,
+    })
+    this.log(
+      `travel.${type}`,
+      `Route ${type}: ${reason}.`,
+      type === 'stall' ? 'warn' : 'info',
+      event,
+    )
+  }
+  recordSegment(endpoint) {
+    const segment = { endpoint: point(endpoint), plannedAt: Date.now(), reachedAt: null }
+    const route = this.activity.route
+    route.partialEndpoint = point(endpoint)
+    route.segments.push(segment)
+    if (route.segments.length > TELEMETRY_LIMIT) route.segments.shift()
+    this.publishTelemetry(true, true)
+    return segment
   }
   phase(phase, label) {
     this.activity.phase = phase
@@ -466,12 +533,15 @@ class Travel {
     }
     return true
   }
-  destination(goal, label) {
+  destination(goal, label, publish = true) {
     const p = goal.entity?.position || goal.pos || goal
     this.activity.destination = [p.x, p.y, p.z].every(Number.isFinite)
       ? { x: p.x, y: p.y, z: p.z, label }
       : null
-    this.work.agent.publish()
+    if (publish) {
+      this.publishRoute()
+      this.work.agent.publish()
+    }
   }
   // A timeout can still yield a useful path section. Reach that section, then retry the original goal.
   async segments(goal) {
@@ -485,13 +555,24 @@ class Travel {
       )
     for (let n = 0; n < 32; n++) {
       this.check()
+      let segment
+      const onSegment = (endpoint) => {
+        if (!segment || key(segment.endpoint) !== key(endpoint))
+          segment = this.recordSegment(endpoint)
+        else {
+          this.activity.route.partialEndpoint = point(endpoint)
+          this.publishTelemetry(true, true)
+        }
+      }
       try {
-        await this.bot.pathfinder.goto(searchGoal)
+        await this.bot.pathfinder.goto(searchGoal, { onSegment })
         return
       } catch (error) {
         if (error.name !== 'PartialRoute') throw error
         const p = error.endpoint,
           k = key(p)
+        onSegment(p)
+        if (error.followed) segment.reachedAt = Date.now()
         if (visited.has(k))
           throw Object.assign(new Error('Route segments stopped making progress.'), {
             name: 'NoPath',
@@ -501,7 +582,10 @@ class Travel {
         this.phase('segment', `Continuing after route section ${n + 1}/32`)
         // Keep the map destination on the user's goal, not this intermediate cell.
         try {
-          if (!error.followed) await this.bot.pathfinder.goto(new goals.GoalBlock(p.x, p.y, p.z))
+          if (!error.followed) {
+            await this.bot.pathfinder.goto(new goals.GoalBlock(p.x, p.y, p.z), { onSegment })
+            segment.reachedAt = Date.now()
+          }
         } catch (segmentError) {
           if (segmentError.name === 'PartialRoute')
             throw Object.assign(
@@ -511,6 +595,9 @@ class Travel {
           throw segmentError
         }
         this.check()
+        this.publishTelemetry(true, true)
+        if (n < 31)
+          this.recordEvent('retry', 'partial_route', { segment: n + 1, endpoint: point(p) })
       }
     }
     throw Object.assign(new Error('Route segment budget reached; choose a closer destination.'), {
@@ -547,6 +634,10 @@ class Travel {
           lastProgress = Date.now()
         } else if (Date.now() - lastProgress > 4500 && this.bot.pathfinder.goal === goal) {
           stalled = true
+          this.recordEvent('stall', 'no_progress', {
+            attempt: attempt + 1,
+            idleMs: Date.now() - lastProgress,
+          })
           this.bot.pathfinder.setGoal(null)
         }
       }, 250)
@@ -560,6 +651,7 @@ class Travel {
           throw Object.assign(new Error('Movement stalled after two route retries.'), {
             name: 'NoPath',
           })
+        this.recordEvent('retry', 'no_progress', { attempt: attempt + 2, maxAttempts: 3 })
         this.phase(
           'recovering',
           `Movement stalled; clearing the old route and retrying (${attempt + 1}/2)`,
@@ -602,14 +694,17 @@ class Travel {
     // even when several possible beaches need to be compared.
     this.check()
     if (Date.now() >= end) return null
+    const searchRadius = this.optional ? 12 : 64
     const generator = this.bot.pathfinder.getPathFromTo(moves, start, goal, {
       timeout: Math.min(350, end - Date.now()),
       tickTimeout: 5,
       optimizePath: false,
-      searchRadius: this.optional ? 12 : 64,
+      searchRadius,
     })
     for (const { result } of generator) {
       this.check()
+      this.activity.search = { ...searchDetails(result, searchRadius), source: 'preview' }
+      this.publishTelemetry(result.status !== 'partial')
       if (result.status !== 'partial') return result.status === 'success' ? result : null
       if (Date.now() >= end) return null
       // Never delegate scheduler yielding to a skill: FARMER's pause(0) is a no-op.
@@ -900,6 +995,13 @@ class Travel {
       this.activity.blocksPlaced++
       this.work.sync()
       this.work.agent.refresh()
+      this.work.agent.emit?.('travel.placed', {
+        taskId: this.work.id,
+        runId: this.work.task.runId ?? null,
+        position: point(step.pos),
+        block: name,
+        blocksPlaced: this.activity.blocksPlaced,
+      })
       this.log('travel.placed', `Shore step confirmed: ${name} at ${key(step.pos)}.`)
     } finally {
       ack.cleanup()
@@ -911,11 +1013,32 @@ class Travel {
     let swimming = false,
       route = []
     const pathUpdate = (result) => {
+      if (this.work.cancelled()) return
+      normalizePassagePath(this.bot, result)
       route = result.path || []
-      if (goal.entity) this.destination(goal, label)
+      // The pathfinder shifts nodes and mutates Moves as it walks. Publish only
+      // detached coordinates and scalar search data, never its cyclic A* context.
+      const search = {
+        ...searchDetails(result, this.bot.pathfinder.searchRadius),
+        source: 'walking',
+      }
+      Object.assign(this.activity.route, { path: route.map(point), search, partialEndpoint: null })
+      this.activity.search = search
+      if (goal.entity) this.destination(goal, label, false)
+      this.publishTelemetry(result.status !== 'partial', true)
     }
-    const pathReset = () => {
+    const pathReset = (reason) => {
       route = []
+      // Preserve the last planned route for inspection after reset/arrival/Stop.
+      if (
+        !this.work.cancelled() &&
+        this.bot.pathfinder.goal &&
+        reason &&
+        !['goal_updated', 'movements_updated'].includes(reason)
+      ) {
+        if (reason === 'stuck') this.recordEvent('stall', reason, { source: 'pathfinder' })
+        this.recordEvent('retry', reason, { source: 'pathfinder' })
+      }
     }
     const buoyancy = () => {
       if (this.work.cancelled()) return
@@ -1040,7 +1163,7 @@ class Travel {
         if (!this.work.cancelled() && this.bot.entity.isInWater)
           this.bot.setControlState('jump', true)
       }
-      this.work.agent.publish()
+      this.publishTelemetry(true, true)
     }
   }
 }

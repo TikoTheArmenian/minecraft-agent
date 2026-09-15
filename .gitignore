@@ -10,3 +10,4 @@ public/textures/
 !.env.example
 bot-profiles.local.json
 supabase/.temp/
+public/dist/

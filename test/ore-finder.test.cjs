@@ -247,3 +247,33 @@ test('constructor keeps the previous survival state and marks the task continuou
   assert.equal(work.task.skill, 'ORE FINDER')
   assert.equal(h.agent.state.oreFinder.status, 'running')
 })
+
+test('unmineable and cooled-down ores do not starve a bounded collection batch', async () => {
+  const h = setup(); h.add('stone_pickaxe')
+  const targets = []
+  for (let x = 2; x < 36; x++) targets.push(h.set('gold_ore', new Vec3(x, 64, 0)))
+  for (const block of targets.slice(0, 10)) h.work.failedTargets.add(`${block.position}:${block.name}`)
+  const coal = h.set('coal_ore', new Vec3(36, 64, 0)); targets.push(coal)
+  assert.equal(await h.work.mineExposed(targets), 1)
+  assert.deepEqual(h.dug, ['coal_ore'])
+  assert.equal(h.work.plan.needsTool, 24)
+})
+
+test('the ore executor refuses a target made unsafe while approaching it', async () => {
+  const h = setup(); h.add('iron_pickaxe')
+  const target = h.set('iron_ore', new Vec3(3, 64, 0))
+  const approach = h.work.approach
+  h.work.approach = async p => { await approach(p); h.set('lava', p.offset(1, 0, 0)) }
+  assert.equal(await h.work.mineExposed([target]), 0)
+  assert.deepEqual(h.dug, [])
+  assert.equal(h.work.counts.mined, 0)
+})
+
+test('ore replaced during a storage trip is not mined as a different resource', async () => {
+  const h = setup(); h.add('iron_pickaxe')
+  const target = h.set('iron_ore', new Vec3(3, 64, 0))
+  h.work.shouldStore = () => true
+  h.work.deposit = async () => { h.set('stone', target.position) }
+  assert.equal(await h.work.mineExposed([target]), 0)
+  assert.deepEqual(h.dug, [])
+})

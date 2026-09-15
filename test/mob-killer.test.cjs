@@ -20,6 +20,7 @@ function setup(radius) {
   const work = new MobKiller(h.agent, 1)
   if (radius) work.radius = radius
   work.pause = async () => work.check()
+  work.combat.pauseTicks = async (ticks) => work.pause(ticks * 50)
   return { ...h, work }
 }
 
@@ -108,7 +109,7 @@ test('safety ignores nearby hostiles but still stops for critical health, lava a
   h.bot.oxygenLevel = 20
   assert.throws(() => { h.bot.health = 2; h.work.check() }, /critically low/)
 })
-test('kills are counted only when the entity leaves bot.entities after our hits, then drops are collected', async () => {
+test('kills require server death after our hits, then drops are collected', async () => {
   const h = setup()
   h.add('iron_sword')
   const zombie = mob(h, 'zombie', 2, 0)
@@ -117,6 +118,7 @@ test('kills are counted only when the entity leaves bot.entities after our hits,
   h.bot.attack = (entity) => {
     h.attacks.push(entity.id)
     if (h.attacks.length === 3) {
+      h.bot.emit('entityDead', entity)
       delete h.bot.entities[entity.id]
       h.bot.emit('entityGone', entity)
     }
@@ -184,7 +186,7 @@ test('without a weapon only zombies and skeletons are fought bare-handed, and on
   assert.equal(h.attacks.length, 0)
   h.bot.health = 20
   const skeleton = mob(h, 'skeleton', 2, 0)
-  h.bot.attack = (entity) => { h.attacks.push(entity.id); delete h.bot.entities[entity.id] }
+  h.bot.attack = (entity) => { h.attacks.push(entity.id); h.bot.emit('entityDead', entity); delete h.bot.entities[entity.id] }
   assert.equal(await h.work.engage(skeleton), true)
   assert.match(h.work.plan.decision, /bare-handed|Killed skeleton/)
   assert.equal(h.work.plan.kills.skeleton, 1)
@@ -341,4 +343,62 @@ test('critical health pauses the skill with a clear message naming the bot', asy
   assert.equal(h.work.task.status, 'partial')
   assert.match(h.work.plan.decision, /critically low/)
   assert.match(h.agent.state.messages.at(-1), /Knight/)
+})
+
+test('a despawn after a hit is not a confirmed kill', async () => {
+  const h = setup(); h.add('iron_sword')
+  const target = mob(h, 'zombie', 2, 0)
+  h.bot.attack = entity => {
+    h.attacks.push(entity.id)
+    delete h.bot.entities[entity.id]
+    h.bot.emit('entityGone', entity)
+  }
+  assert.equal(await h.work.engage(target), false)
+  assert.equal(h.attacks.length, 1)
+  assert.equal(h.work.plan.killsTotal, 0)
+  assert.equal(h.bot.listenerCount('entityDead'), 0)
+})
+
+test('new danger or a blocked line of sight during aiming prevents the swing', async () => {
+  for (const change of ['health', 'creeper', 'wall', 'weapon']) {
+    const h = setup(); h.add('iron_sword')
+    const target = mob(h, 'zombie', 2, 0)
+    await h.work.arm(target)
+    h.bot.lookAt = async () => {
+      if (change === 'health') h.bot.health = 8
+      if (change === 'creeper') mob(h, 'creeper', 3, 0)
+      if (change === 'wall') h.bot.world.raycast = () => ({ position: new Vec3(1, 65, 0) })
+      if (change === 'weapon') h.bot.heldItem = h.add('bread')
+    }
+    assert.equal(await h.work.strike(target), false, change)
+    assert.equal(h.attacks.length, 0, change)
+  }
+})
+
+test('a worn-out weapon is replaced between swings and the replacement has its own cooldown', async () => {
+  const h = setup(), sword = h.add('iron_sword')
+  h.add('stone_axe')
+  const target = mob(h, 'zombie', 2, 0), ticks = []
+  h.work.combat.pauseTicks = async n => { ticks.push(n); h.work.check() }
+  h.bot.attack = entity => {
+    h.attacks.push(h.bot.heldItem.name)
+    if (h.attacks.length === 1) sword.durabilityUsed = 249
+    else { h.bot.emit('entityDead', entity); delete h.bot.entities[entity.id] }
+  }
+  h.work.pickup = async () => {}
+  assert.equal(await h.work.engage(target), true)
+  assert.deepEqual(h.attacks, ['iron_sword', 'stone_axe'])
+  assert.deepEqual(ticks, [13, 25])
+})
+
+test('an entity ID reused during a chase ends the old engagement', async () => {
+  const h = setup(); h.add('iron_sword')
+  const target = mob(h, 'zombie', 10, 0)
+  h.work.chase = async () => {
+    h.bot.entities[target.id] = { ...target, position: new Vec3(2, 64, 0) }
+    return true
+  }
+  assert.equal(await h.work.engage(target), false)
+  assert.equal(h.attacks.length, 0)
+  assert.equal(h.bot.listenerCount('entityDead'), 0)
 })

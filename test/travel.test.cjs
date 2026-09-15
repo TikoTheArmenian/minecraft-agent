@@ -142,6 +142,11 @@ test('a stationary route is cleared and retried instead of hanging until the tas
   await simulate(work.travel(new goals.GoalBlock(-3,66,0),'Walk on the platform'),7000)
   assert.equal(calls,2)
   assert.ok(logs.some(l=>l.event==='travel.recovering'))
+  const events=work.task.travel.events.filter(e=>e.reason==='no_progress')
+  assert.deepEqual(events.map(e=>[e.type,e.attempt]),[['stall',1],['retry',2]])
+  assert.ok(events[0].idleMs>4500)
+  assert.equal(events[1].maxAttempts,3)
+  assert.ok(events.every(e=>Number.isFinite(e.at) && Number.isFinite(e.position.x)))
   assert.equal(bot.pathfinder.goal,null)
 })
 

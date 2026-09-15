@@ -584,6 +584,8 @@ class Supervisor {
             this.reason = error.code
           }
           this.publish()
+          if (this.lastDecision?.context === context)
+            this.agent.emit?.('supervisor.decision', plain(this.lastDecision))
         }
       }
     }

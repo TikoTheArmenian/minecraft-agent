@@ -9,6 +9,7 @@
     <script src="/icons.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/world.js" defer></script>
+    <script src="/dist/map-viewer.js" defer></script>
     <script src="/activity.js" defer></script>
     <script src="/storage.js" defer></script>
     <script src="/costs.js" defer></script>
@@ -119,13 +120,16 @@
                         <h2 data-bot-label="{bot} · map">Live block map</h2>
                     </div><span id="map-live" role="status">Waiting for world</span>
                 </div>
-                <p class="muted">Click a block to inspect it. Drag across blocks to select a mining area. Use the
-                    buttons below to act.</p>
+                <p class="muted">Choose a bot above and a player below to explore their surroundings in that world.</p>
                 <div class="map-toolbar"><label>Follow<select id="map-focus">
                             <option value="player">My player (nearest)</option>
                             <option value="bot">Marc</option>
                         </select></label>
-                    <div class="map-height"><span>View height</span>
+                </div>
+                <div id="map-3d-root"></div>
+                <details class="map-planner"><summary>Top-down map · movement and mining</summary>
+                <p class="muted">Click a block to inspect it, or drag to select a mining area.</p>
+                <div class="map-toolbar"><div class="map-height"><span>View height</span>
                         <div><button id="map-down" class="secondary"
                                 aria-label="Look four blocks lower">−</button><button id="map-reset-height"
                                 class="secondary">Player level</button><button id="map-up" class="secondary"
@@ -152,6 +156,7 @@
                         class="secondary" disabled>Save image</button></div>
                 <p id="map-caption" class="muted small">A cutaway image drawn from actual loaded blocks, not a Minecraft
                     screenshot. Hidden or distant chunks may be unknown.</p>
+                </details>
             </section>
             <aside class="world-sidebar">
                 <section class="panel" id="wheat-panel">

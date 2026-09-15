@@ -50,16 +50,11 @@ function createApp(agent, fleet = null) {
     next()
   })
   if (fleet) {
+    require('../agents/fleet-events.cjs').installFleetEvents(fleet)
     // Each entry carries the bot's live state plus its static profile (name, default skill, role).
-    app.get('/api/fleet', (req, res) =>
-      res.json(
-        Object.fromEntries(
-          Object.entries(fleet).map(([id, bot]) => [
-            id,
-            { ...bot.state, profile: bot.profile || { id, username: bot.username } },
-          ]),
-        ),
-      ),
+    app.get('/api/fleet', (req, res) => res.json(require('./events.cjs').fleetSnapshot(fleet)))
+    app.get('/api/fleet/events', (req, res) =>
+      require('./events.cjs').streamFleetEvents(fleet, req, res),
     )
     app.post('/api/stop-all', (req, res) => {
       for (const bot of Object.values(fleet)) bot.stop()
@@ -148,6 +143,20 @@ function createApp(agent, fleet = null) {
       if (error && !res.headersSent) next(error)
     }),
   )
+  app.get('/api/map/volume', (req, res, next) => {
+    try {
+      if (agent.state.connection !== 'ready') throw new Error('Connect the bot to view its world.')
+      res.json(
+        require('../world/volume.cjs').buildVolume(agent.bot, {
+          focus: req.query.focus ?? 'bot',
+          size: req.query.size === undefined ? 7 : Number(req.query.size),
+          ...(req.query.height === undefined ? {} : { height: Number(req.query.height) }),
+        }),
+      )
+    } catch (error) {
+      next(error)
+    }
+  })
   app.get('/api/map', (req, res, next) => {
     try {
       res.json(
@@ -176,38 +185,7 @@ function createApp(agent, fleet = null) {
       next(error)
     }
   })
-  app.get('/api/events', (req, res) => {
-    res.set({ 'Content-Type': 'text/event-stream', Connection: 'keep-alive' })
-    res.flushHeaders()
-    const send = (state) => {
-      // A slow/closed browser must not accumulate an unbounded stream buffer.
-      if (res.destroyed || res.writableLength > 256 * 1024) {
-        res.destroy()
-        return
-      }
-      res.write(`data: ${JSON.stringify(state)}\n\n`)
-    }
-    send(agent.state)
-    // Coalesce bursts of action/log events into one current state. A browser
-    // should not disconnect simply because several placements finish together.
-    let pending
-    const schedule = () => {
-      if (!pending)
-        pending = setTimeout(() => {
-          pending = null
-          send(agent.state)
-        }, 100)
-    }
-    agent.on('state', schedule)
-    const pulse = setInterval(() => {
-      if (!res.destroyed) res.write(': heartbeat\n\n')
-    }, 15000)
-    res.once('close', () => {
-      clearTimeout(pending)
-      clearInterval(pulse)
-      agent.off('state', schedule)
-    })
-  })
+  app.get('/api/events', (req, res) => require('./events.cjs').streamEvents(agent, req, res))
   app.post('/api/llm', (req, res, next) => {
     try {
       agent.llm.configure(req.body)

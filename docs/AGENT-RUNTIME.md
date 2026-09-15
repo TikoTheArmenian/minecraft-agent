@@ -25,7 +25,7 @@ flowchart LR
   Supervisor --> Scheduler[Shared inference scheduler and cost ledger]
 ```
 
-Each `Agent` owns its connection, runtime, supervisor, objective, inbox, checkpoints, and UI state. Fleet composition shares the peer directory, furnace leases, storage service, API cost ledger, and inference scheduler. The scheduler's default ledger is `data/supervisor-usage.json`, independent of profile order. A standalone `Agent` uses its own data directory for the scheduler ledger.
+Each `Agent` owns its connection, runtime, supervisor, objective, inbox, checkpoints, and UI state. Fleet composition shares the event bus, peer directory, furnace leases, storage service, API cost ledger, and inference scheduler. The scheduler's default ledger is `data/supervisor-usage.json`, independent of profile order. A standalone `Agent` uses its own data directory for the scheduler ledger.
 
 World labels remain the existing user-selected save identity; use distinct labels for distinct saves. The host remains one Node process. Furnace leases protect bots in that process; they are not distributed locks. Storage continues to use its existing backend leases and reconciliation. Human players can still interfere with a furnace or inventory; confirmation and recovery checks handle observed conflicts.
 
@@ -33,6 +33,7 @@ World labels remain the existing user-selected save identity; use distinct label
 | --- | --- |
 | Bot identity, default invocation, allowlist, capabilities | `src/agents/profiles.cjs` |
 | Fleet composition and shared services | `src/agents/fleet.cjs` |
+| Fleet event bus and shared event catalog | `src/agents/fleet-events.cjs`, `src/infra/events.cjs` |
 | Skill registry and canonical parameter/result schemas | `src/skills/registry.cjs`, `src/runtime/skill-contracts.cjs` |
 | Structured request validation | `src/runtime/command-service.cjs`, `invocations.cjs`, `schema.cjs` |
 | Admission, run receipts, Stop, handoff, cleanup, recovery | `src/runtime/skill-runner.cjs` |
@@ -131,6 +132,7 @@ The existing `/api/command` endpoint remains available. Structured clients use `
 | `GET/POST /api/supervisor` | Read/configure mode, model, objective and per-bot budget |
 | `POST /api/supervisor/resume` or `/pause` | Explicit control, with an empty JSON object |
 | `GET /api/messages` | Inbox, connected peers and queued transport frames |
+| `GET /api/events` | Named SSE events and periodic full-state snapshots for this bot |
 
 The runner holds physical ownership until execution and bounded cleanup settle. Ordinary switching requests a separate handoff signal. Checkpoint-capable workflows yield outside inventory transactions; tree work descends and recovers supports, and furnace work saves ownership before yielding. A missed one-minute handoff deadline cancels the proposed replacement and reports `HANDOFF_BLOCKED`; it does not escalate to emergency cancellation.
 
@@ -139,6 +141,69 @@ Results distinguish `succeeded`, `partial`, `blocked`, `cancelled` and `failed`,
 Tree, terraforming and furnace jobs use validated versioned JSON with valid legacy migration. Furnace input/fuel/output transfers, managed chest transfers, managed crafting and exchanges record intent before effects and confirmation afterward. Old iron output or charcoal fuel production cannot satisfy a new glass request. Corrupt saved work is preserved and fails closed.
 
 An interrupted run, unresolved operation, failed checkpoint or failed cleanup blocks new admission in that scope—even a different invocation of the same skill. Inspect the world, inventories and relevant operation/checkpoint records before submitting a human review. A review records what was checked; it does not fabricate completion or resolve an independent backend quarantine. Storage reconciliation and topology changes require explicit human commands. Ordinary Stop/restart of a healthy checkpoint-capable skill still uses its persisted skill job and live validation.
+
+## Event subscriptions
+
+`GET /bots/:id/api/events` streams events for one bot. `/api/events` uses the app's default bot. Named frames carry a JSON envelope `{type, botId, at, payload}`; `type` also appears in the SSE `event:` field, and `at` is the stream emission time in epoch milliseconds.
+
+| Event | Payload |
+| --- | --- |
+| `skill.progress` | The runtime's progress milestone: run/skill identity, phase, counts, blockers and checkpoint status. It uses the existing milestone cadence, not every action label change. |
+| `skill.blocked` | A changed blocker or handoff failure, including its reason code. |
+| `skill.result` | The completed skill result, including outcome, counts, confirmed effects and outstanding operations. |
+| `travel.route` | `{taskId, runId, status, destination, route}` with the retained path, search metrics and partial-segment history described in [Travel telemetry](CODE-GUIDE.md#travel-telemetry). Emitted when the destination, route, segment or final status is published; partial search updates are throttled to once per second. |
+| `travel.placed` | `{taskId, runId, position, block, blocksPlaced}` after the server confirms a travel construction block. |
+| `travel.stall`, `travel.retry` | Structured travel events with task/run identity, reason, position and relevant attempt or segment details. |
+| `supervisor.decision` | The final decision record, including mode, disposition, context and any decoded decision, receipt or rejection error. |
+| `message.delivery` | A transport update with message `id`, `status`, and applicable `reason` or acknowledging peer `by`. |
+
+The `events` query selects a comma-separated list; omission subscribes to all supported types. `events=none` selects snapshots only. Unknown types are rejected with HTTP 400 before the stream opens.
+
+Every connection receives an immediate, unnamed `data:` frame containing the raw `agent.state`, then another every five seconds. `snapshotMs` changes that interval to an integer from 100 to 60000 milliseconds. The control room uses `events=none&snapshotMs=100` to retain its fast `EventSource.onmessage` updates. State publications do not individually trigger snapshots. Heartbeat comments are sent every 15 seconds.
+
+```js
+const stream = new EventSource(
+  '/bots/marc/api/events?events=skill.result,travel.route&snapshotMs=15000'
+)
+stream.onmessage = ({ data }) => restoreSnapshot(JSON.parse(data))
+stream.addEventListener('travel.route', ({ data }) => {
+  const { botId, payload } = JSON.parse(data)
+  drawRoute(botId, payload)
+})
+stream.addEventListener('skill.result', ({ data }) => recordResult(JSON.parse(data)))
+// Call stream.close() when leaving the view or switching bots.
+```
+
+Selected named events are written in emission order without coalescing discrete results or deliveries. Slow readers are disconnected when the queued response exceeds 256 KB; closing a stream removes its listeners and timers. Reconnecting starts with a fresh snapshot. The stream has no event IDs or historical replay: clients that need a durable event timeline must record it, and can reconcile run results through `/api/runs`.
+
+### Fleet event bus
+
+`buildFleet()` installs one in-process `EventEmitter` at `fleet.events`. Each agent's public events from the table above are forwarded to it once. The bus stamps `{type, botId, at, payload}` when forwarding and copies the payload so a recorder can retain it after the agent changes its state. Named subscriptions and the catch-all `event` subscription receive that same envelope:
+
+```js
+fleet.events.on('event', recordEvent)
+fleet.events.on('skill.result', ({ botId, payload }) => coordinateResult(botId, payload))
+fleet.events.on('travel.route', ({ botId, payload }) => updateViewer(botId, payload))
+// Remove a consumer without disconnecting agents or other consumers.
+fleet.events.off('event', recordEvent)
+```
+
+The catalog lives in `src/infra/events.cjs` and is shared with SSE. Full-state publications stay outside this typed bus; the web adapters read periodic snapshots directly. Forwarding leaves per-agent listeners intact and does not dispatch events or commands into another bot automatically. The existing scoped message router continues to own Minecraft communication.
+
+The `events` property is non-enumerable, so `Object.keys/values/entries(fleet)` still enumerate only bots. The bot profile ID `events` is reserved. Registering a fleet or attaching an agent again is idempotent. For explicit membership changes, use `fleet.events.detach(agent)` and `fleet.events.attach(agent)`; ordinary Minecraft disconnect/reconnect keeps the agent's bridge. `fleet.events.close()` detaches all bridges and listeners and is called during application shutdown.
+
+`GET /api/fleet/events` exposes this bus through one SSE connection for the whole fleet, with the same `events` and `snapshotMs` options:
+
+```js
+const stream = new EventSource('/api/fleet/events?events=skill.result,travel.route')
+stream.onmessage = ({ data }) => restoreFleet(JSON.parse(data))
+stream.addEventListener('travel.route', ({ data }) => {
+  const { botId, payload } = JSON.parse(data)
+  updateViewer(botId, payload)
+})
+```
+
+Its unnamed snapshots contain the same bot-ID-to-state-and-profile mapping as `GET /api/fleet`. Named events preserve the bus envelope and timestamp. Closing a viewer removes its bus subscriptions while in-process recording and coordination continue. The default-bot and per-bot SSE endpoints retain their existing contracts.
 
 ## Peer communication
 

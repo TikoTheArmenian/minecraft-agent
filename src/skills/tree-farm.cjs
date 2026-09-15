@@ -3,13 +3,13 @@
  *
  * The farmer works one whole tree at a time:
  *   1. inspectTree() maps the connected trunk and branches before anything is cut.
- *   2. plantingStock() makes sure enough saplings are on hand to replant every root.
+ *   2. prepareTools()/prepareDirt() obtain supplies, using the first trunk for wood.
  *   3. harvestTree() removes logs bottom-up, building temporary dirt steps into the
  *      canopy when a log is out of reach.
  *   4. recoverScaffolds() takes those temporary steps back down.
- *   5. replantRoots() puts a sapling on every original root position.
+ *   5. plantingStock()/replantRoots() collect drops and replant the original roots.
  *
- * Unfinished work is saved as a "tree job" (one per world + dimension) so a reconnect
+ * Unfinished work is saved as a "tree job" (one active per world + dimension) so a reconnect
  * or a skill switch never leaves a half-cut tree or an unpaid replanting debt behind.
  * The natural-tree checks (rooted in soil, non-persistent leaves) stop the bot from
  * dismantling a wooden building that merely looks like a tree.
@@ -67,6 +67,8 @@ const MAX_CLIMB_STEPS = 40
 const MAX_STAIR_STEPS = 16
 const MAX_LEAF_CLEARANCE_ATTEMPTS = 24
 const MAX_STALLED_PASSES = 3
+const SUPPLY_RETRY_MS = 60000
+const TOOL_TIERS = ['netherite', 'diamond', 'iron', 'stone', 'wooden', 'golden']
 
 /** Saved "planted" entries are position keys in the form "x,y,z". */
 const POSITION_KEY_PATTERN = /^-?\d+,-?\d+,-?\d+$/
@@ -194,7 +196,7 @@ function isSavedTreeJob(job) {
   return scaffoldsValid
 }
 
-/** Shape check for the whole file: a plain object keyed by "world:dimension". */
+/** Active jobs use "world:dimension"; deferred planting jobs append ":replant:x,y,z". */
 function isSavedTreeJobs(jobs) {
   if (!jobs || typeof jobs !== 'object' || Array.isArray(jobs)) return false
   return Object.values(jobs).every(isSavedTreeJob)
@@ -349,6 +351,9 @@ class TreeFarm extends ResourceWork {
       this.plan.planted = this.job.planted.length
       this.plan.remaining = this.job.logs.length - this.plan.logs
     }
+    this.replantRetries = new Map()
+    this.supplyRetries = new Map()
+    this.updateReplantCount()
   }
 
   /** Read tree-jobs.json into agent.treeJobs, turning plain coordinates back into Vec3s. */
@@ -365,8 +370,26 @@ class TreeFarm extends ResourceWork {
 
   /** Persist unfinished tree work so reconnecting does not lose the replanting obligation. */
   saveJob() {
+    this.updateReplantCount()
     if (!this.jobFile) return
     saveJson(this.jobFile, Object.fromEntries(this.agent.treeJobs), { validate: isSavedTreeJobs })
+  }
+
+  pendingReplants() {
+    return [...this.agent.treeJobs].filter(([key]) => key.startsWith(`${this.jobKey}:replant:`))
+  }
+
+  updateReplantCount() {
+    this.plan.pendingReplants = this.pendingReplants().reduce(
+      (n, [, job]) => n + job.roots.length - job.planted.length,
+      0,
+    )
+    this.reserves = {}
+    for (const [key, job] of this.agent.treeJobs) {
+      if (key !== this.jobKey && !key.startsWith(`${this.jobKey}:replant:`)) continue
+      const name = saplingName(job.species)
+      this.reserves[name] = (this.reserves[name] || 0) + job.roots.length - job.planted.length
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -449,6 +472,13 @@ class TreeFarm extends ResourceWork {
 
   /** Place an item on `support`, first stepping back if we are standing where it would go. */
   async placeItem(name, support) {
+    if (
+      name === 'crafting_table' &&
+      [this.job, ...this.pendingReplants().map(([, job]) => job)]
+        .filter(Boolean)
+        .some((job) => job.roots.some((p) => p.equals(support.position.offset(0, 1, 0))))
+    )
+      throw new Error('Keep the tree planting spot clear of the crafting table.')
     const plantedCenter = support.position.offset(0, 1, 0).offset(0.5, 0, 0.5)
     const standingTooClose = this.bot.entity.position.distanceTo(plantedCenter) < 1.8
     if (standingTooClose) {
@@ -1116,6 +1146,28 @@ class TreeFarm extends ResourceWork {
   // Finding trees and supplies
   // -------------------------------------------------------------------------
 
+  /** Filter during the scan so buried dirt cannot crowd safe surface supplies out. */
+  find(names, radius = 32, predicate = () => true) {
+    const matching = names
+      .map((name) => this.bot.registry.blocksByName[name]?.id)
+      .filter(Number.isInteger)
+    if (!matching.length) return []
+    const eligible = (block) =>
+      block &&
+      block.position.distanceTo(this.origin) <= 80 &&
+      !this.failedTargets.has(`${block.position}:${block.name}`) &&
+      predicate(block)
+    return this.bot
+      .findBlocks({ matching, maxDistance: radius, count: 256, useExtraInfo: eligible })
+      .map((pos) => this.bot.blockAt(pos))
+      .filter(eligible)
+      .sort(
+        (a, b) =>
+          a.position.distanceTo(this.bot.entity.position) -
+          b.position.distanceTo(this.bot.entity.position),
+      )
+  }
+
   /** Dirt and grass may be dug for supports, but never where it would scar the tree site or a farm. */
   safeTarget(block) {
     if (!super.safeTarget(block)) return false
@@ -1123,8 +1175,11 @@ class TreeFarm extends ResourceWork {
 
     const exposed = isAir(this.bot.blockAt(block.position.offset(0, 1, 0)))
     if (!exposed) return false
-    const nearTreeRoots = this.job?.roots.some(
-      (r) => Math.hypot(r.x - block.position.x, r.z - block.position.z) < 6,
+    const protectedJobs = [this.job, ...this.pendingReplants().map(([, job]) => job)].filter(
+      Boolean,
+    )
+    const nearTreeRoots = protectedJobs.some((job) =>
+      job.roots.some((r) => Math.hypot(r.x - block.position.x, r.z - block.position.z) < 6),
     )
     if (nearTreeRoots) return false
     for (let dx = -2; dx <= 2; dx++)
@@ -1161,18 +1216,135 @@ class TreeFarm extends ResourceWork {
     return null
   }
 
+  /** Optional supply trips never prevent reachable logs from being harvested. */
+  supplyFailure(label, error) {
+    this.check()
+    if (error.fatal || ['HANDOFF', 'CANCELLED', 'AIR_RECOVERY'].includes(error.code)) throw error
+    this.addIssue(`${label}: ${error.message}`)
+  }
+
+  async restock(names, target, label) {
+    const key = names.join(',')
+    if (Date.now() < (this.supplyRetries.get(key) || 0)) return
+    this.supplyRetries.set(key, Date.now() + SUPPLY_RETRY_MS)
+    await require('../capabilities/local-supplies.cjs').restockLocal(
+      this,
+      names,
+      target,
+      target,
+      label,
+    )
+  }
+
+  tool(kind) {
+    return TOOL_TIERS.map((tier) => `${tier}_${kind}`).find((name) =>
+      this.bot.inventory.items().some((item) => {
+        if (item.name !== name || item.count <= 0) return false
+        const max = this.bot.registry.items[item.type]?.maxDurability
+        return !max || (item.durabilityUsed || 0) < max - 8
+      }),
+    )
+  }
+
+  /** Crafting must never use the generic wood gatherer, which loses the rest of a tree. */
+  async planks(amount) {
+    if (this.total(/_log$/) * 4 + this.total(/_planks$/) < amount)
+      throw new Error('Waiting for more wood from the saved tree to craft tools.')
+    await super.planks(amount)
+  }
+
+  async prepareTools() {
+    for (const kind of ['axe', 'shovel']) {
+      if (this.tool(kind)) continue
+      const names = TOOL_TIERS.map((tier) => `${tier}_${kind}`)
+      try {
+        this.decide(`Getting a tree farming ${kind} from storage.`)
+        // Worn-out tools must not satisfy the restock count.
+        await this.restock(names, names.reduce((n, name) => n + this.count(name), 0) + 1, kind)
+      } catch (error) {
+        this.supplyFailure(`Could not retrieve a ${kind}`, error)
+      }
+    }
+    if (this.tool('axe') && this.tool('shovel')) return
+
+    try {
+      // Three logs cover a table, sticks, axe and shovel. Every starter log is
+      // part of the saved job, including if Stop arrives during preparation.
+      const starterLogs = this.job.logs
+        .filter(
+          (p) =>
+            this.bot.blockAt(p)?.name === logName(this.job.species) &&
+            this.job.roots.some((root) => sameColumn(root, p) && p.y < root.y + 3),
+        )
+        .sort((a, b) => a.y - b.y)
+      for (const pos of starterLogs.slice(0, 3)) {
+        if (this.total(/_log$/) * 4 + this.total(/_planks$/) >= 12) break
+        this.decide('Harvesting starter wood from the saved tree to craft tools.')
+        await this.harvestLog(pos)
+      }
+      for (const kind of ['axe', 'shovel']) {
+        if (this.tool(kind)) continue
+        const amount = kind === 'axe' ? 3 : 1
+        const tier =
+          this.count('iron_ingot') >= amount
+            ? 'iron'
+            : this.count('cobblestone') >= amount || this.count('cobbled_deepslate') >= amount
+              ? 'stone'
+              : 'wooden'
+        const table = await this.craftingTable()
+        await this.sticks(2)
+        if (tier === 'wooden') await this.planks(amount)
+        await this.craft(`${tier}_${kind}`, table)
+      }
+    } catch (error) {
+      this.supplyFailure(
+        'Tool preparation deferred; continuing with available tools or hands',
+        error,
+      )
+    }
+  }
+
+  async prepareDirt() {
+    const minY = Math.min(...this.job.roots.map((p) => p.y))
+    const height = Math.max(...this.job.logs.map((p) => p.y)) - minY
+    const target = Math.min(64, Math.max(8, height + MAX_STAIR_STEPS + this.job.roots.length))
+    if (this.count('dirt') >= target) return
+    try {
+      this.decide(`Preparing dirt for tree access: ${this.count('dirt')}/${target}.`)
+      await this.restock(['dirt'], 128, 'tree access dirt')
+      if (this.count('dirt') >= target) return
+      await this.gather(
+        ['dirt', 'grass_block'],
+        () => this.count('dirt') >= target,
+        `${target} dirt for tree access`,
+        target,
+        false,
+      )
+    } catch (error) {
+      this.supplyFailure('Dirt preparation deferred; harvesting reachable logs first', error)
+    }
+  }
+
   /**
-   * Make sure we hold one sapling per unplanted root before cutting. Saplings are
-   * gathered by picking up drops around the roots and breaking nearby natural leaves.
+   * Collect replanting stock after cutting, when the canopy and drops are accessible.
+   * Missing stock is saved as planting debt instead of blocking the next mature tree.
    */
   async plantingStock(job) {
     const sapling = saplingName(job.species)
     const saplingLabel = sapling.replaceAll('_', ' ')
-    const needed = job.roots.length - job.planted.length
+    const needed = job.roots.filter(
+      (p) => !job.planted.includes(positionKey(p)) && this.bot.blockAt(p)?.name !== sapling,
+    ).length
     if (this.count(sapling) >= needed) return
 
-    this.decide(`Collecting ${saplingLabel} before cutting the tree.`)
+    this.decide(`Collecting ${saplingLabel} from the harvested tree for replanting.`)
     for (const root of job.roots) await this.pickup(root)
+    if (this.count(sapling) >= needed) return
+    try {
+      await this.restock([sapling], needed, saplingLabel)
+    } catch (error) {
+      this.supplyFailure('Sapling storage unavailable; checking the canopy', error)
+    }
 
     const nearbyLeaves = this.find(
       [leavesName(job.species)],
@@ -1184,25 +1356,24 @@ class TreeFarm extends ResourceWork {
     for (const leaf of nearbyLeaves.slice(0, 48)) {
       if (this.count(sapling) >= needed) break
       try {
-        await this.approach(leaf.position)
+        await this.reachLog(leaf.position)
         // Shears and silk touch would drop the leaf block itself instead of a sapling.
         await this.dig(
           leaf.position,
           leaf.name,
-          () => true,
+          (block) => isNaturalLeaf(block, job.species),
           (item) => !item || (!/shears/.test(item.name) && this.withoutSilk(item)),
         )
         await this.pickup(leaf.position)
       } catch (error) {
-        if (error.fatal || error.code === 'HANDOFF' || this.cancelled()) throw error
-        this.addIssue(error.message)
+        this.supplyFailure('Sapling collection', error)
       }
     }
 
     if (this.count(sapling) < needed)
       throw Object.assign(
         new Error(
-          `Need ${needed} ${saplingLabel} reserved for replanting. Drop saplings beside ${this.agent.username}.`,
+          `Replanting saved: ${this.count(sapling)}/${needed} ${saplingLabel}. Checking drops and storage again later.`,
         ),
         { code: 'WAITING_FOR_SAPLINGS' },
       )
@@ -1246,7 +1417,7 @@ class TreeFarm extends ResourceWork {
   /** Work through the inspected tree job; leave enough information to resume and replant it. */
   async harvestTree() {
     const job = this.job
-    await this.plantingStock(job)
+    this.check()
 
     const remainingLogs = job.logs.filter((p) => this.bot.blockAt(p)?.name === logName(job.species))
     this.plan.remaining = remainingLogs.length
@@ -1258,18 +1429,8 @@ class TreeFarm extends ResourceWork {
     )
 
     for (const logPos of remainingLogs) {
-      this.check()
-      await this.ensureInventoryRoom()
       this.decide(`Harvesting the full ${job.species} tree · ${this.plan.remaining} logs left.`)
-      await this.reachLog(logPos)
-      await this.dig(logPos, logName(job.species))
-      job.removed++
-      this.plan.logs++
-      this.counts.mined++
-      this.plan.remaining--
-      this.sync()
-      this.saveJob()
-      await this.handoffCheckpoint()
+      await this.harvestLog(logPos)
     }
 
     const logsLeft = job.logs.some(
@@ -1279,12 +1440,101 @@ class TreeFarm extends ResourceWork {
       throw new Error('Tree removal is incomplete; retaining this tree for the next attempt.')
 
     await this.recoverScaffolds()
-    await this.replantRoots(job)
+    await this.finishPlanting(job)
+  }
 
-    this.plan.trees++
+  async harvestLog(pos) {
+    this.check()
+    await this.ensureInventoryRoom()
+    await this.reachLog(pos)
+    await this.dig(pos, logName(this.job.species))
+    this.job.removed++
+    this.plan.logs++
+    this.counts.mined++
+    this.plan.remaining = this.job.logs.filter(
+      (p) => this.bot.blockAt(p)?.name === logName(this.job.species),
+    ).length
+    this.sync()
+    this.saveJob()
+    await this.handoffCheckpoint()
+    await this.pickup(pos)
+  }
+
+  async finishPlanting(job) {
+    let waiting
+    try {
+      await this.plantingStock(job)
+    } catch (error) {
+      if (error.code !== 'WAITING_FOR_SAPLINGS') throw error
+      waiting = error
+    }
+    // Sapling collection may also have needed canopy steps. Always secure them
+    // before moving on, even when no saplings dropped.
+    await this.recoverScaffolds()
+    if (!waiting) {
+      try {
+        await this.replantRoots(job)
+      } catch (error) {
+        if (error.code !== 'PLANTING_BLOCKED') throw error
+        waiting = error
+      }
+    }
+    if (waiting) {
+      const pendingKey = `${this.jobKey}:replant:${positionKey(job.roots[0])}`
+      this.agent.treeJobs.set(pendingKey, job)
+      this.replantRetries.set(pendingKey, Date.now() + SUPPLY_RETRY_MS)
+      this.decide(`${waiting.message} Continuing with nearby mature trees.`)
+    } else {
+      this.plan.trees++
+    }
     this.agent.treeJobs.delete(this.jobKey)
     this.saveJob()
     this.job = null
+  }
+
+  async retryReplants() {
+    const ready = this.pendingReplants().filter(
+      ([key]) => Date.now() >= (this.replantRetries.get(key) || 0),
+    )
+    for (const [key, job] of ready.slice(0, 4)) {
+      this.check()
+      // Promote before acting so a failed climb or Stop retains one active job.
+      this.job = job
+      this.agent.treeJobs.set(this.jobKey, job)
+      this.agent.treeJobs.delete(key)
+      this.saveJob()
+      if (job.scaffolds?.length) await this.recoverScaffolds()
+      await this.finishPlanting(job)
+      if (!this.agent.treeJobs.has(key)) this.replantRetries.delete(key)
+      await this.handoffCheckpoint()
+    }
+  }
+
+  async plantingSoil(root) {
+    const pos = root.offset(0, -1, 0)
+    const soil = this.bot.blockAt(pos)
+    if (SOIL.has(soil?.name)) return soil
+    const blocked = (message) => Object.assign(new Error(message), { code: 'PLANTING_BLOCKED' })
+    if (!isAir(soil))
+      throw blocked(`Replanting saved: soil at ${positionKey(pos)} is ${soil?.name || 'unloaded'}.`)
+    if (!this.count('dirt')) await this.prepareDirt()
+    const support = this.bot.blockAt(pos.offset(0, -1, 0))
+    if (!this.count('dirt') || support?.boundingBox !== 'block')
+      throw blocked(`Replanting saved: need dirt and solid support at ${positionKey(pos)}.`)
+    this.decide('Restoring missing dirt beneath the saved tree planting spot.')
+    const confirmation = watchForBlockType(
+      this.bot,
+      pos,
+      this.bot.registry.blocksByName.dirt,
+      this.controller.signal,
+    )
+    try {
+      await this.placeItem('dirt', support)
+      await this.timed(() => confirmation.promise, 4000, 'Confirm restored tree soil')
+    } finally {
+      confirmation.cleanup()
+    }
+    return this.bot.blockAt(pos)
   }
 
   /** Put a sapling on every root that has not been replanted yet, confirming each placement. */
@@ -1295,8 +1545,14 @@ class TreeFarm extends ResourceWork {
       if (job.planted.includes(positionKey(rootPos))) continue
 
       if (this.bot.blockAt(rootPos)?.name !== sapling) {
-        const soil = this.bot.blockAt(rootPos.offset(0, -1, 0))
-        if (!SOIL.has(soil?.name)) throw new Error('Tree planting soil changed.')
+        if (!isAir(this.bot.blockAt(rootPos)))
+          throw Object.assign(
+            new Error(
+              `Replanting saved: planting spot ${positionKey(rootPos)} is occupied or unloaded.`,
+            ),
+            { code: 'PLANTING_BLOCKED' },
+          )
+        const soil = await this.plantingSoil(rootPos)
         const confirmation = watchForBlockType(
           this.bot,
           rootPos,
@@ -1336,8 +1592,10 @@ class TreeFarm extends ResourceWork {
     await this.eat()
 
     if (!this.job) {
+      await this.retryReplants()
       this.job = await this.findTree()
       if (this.job) {
+        this.plan.remaining = this.job.logs.length
         this.agent.treeJobs.set(this.jobKey, this.job)
         this.saveJob()
       }
@@ -1347,23 +1605,33 @@ class TreeFarm extends ResourceWork {
 
     // After an interrupted climb, return safely before collecting supplies.
     if (this.job.scaffolds?.length) await this.recoverScaffolds()
-    await this.agent.coordination?.returnSupplies(this)
-    // Dirt columns need dirt specifically; recover scaffolds before the supply trip.
-    await require('../capabilities/building-supplies.cjs').ensure(this, {
-      names: ['dirt'],
-      threshold: 8,
-    })
+    if (this.job.logs.some((p) => this.bot.blockAt(p)?.name === logName(this.job.species))) {
+      await this.prepareTools()
+      await this.prepareDirt()
+    }
 
     await this.harvestTree()
     await this.handoffCheckpoint()
     this.stalledPasses = 0
-    this.decide('Full tree harvested and replanted. Looking for the next tree.')
+    this.decide(
+      this.plan.pendingReplants
+        ? `Tree harvested; ${this.plan.pendingReplants} planting spots saved. Looking for the next tree.`
+        : 'Full tree harvested and replanted. Looking for the next tree.',
+    )
+    // The farmer manages dirt itself; this checkpoint only returns surplus and
+    // obtains shared tools, without starting a second, mandatory 128-block dig.
+    this.refillingBuilding = true
+    try {
+      await this.agent.coordination?.returnSupplies(this)
+    } finally {
+      this.refillingBuilding = false
+    }
     await this.pause(1000)
   }
 
   /**
    * Count consecutive passes that neither removed a log, replanted a root, nor
-   * recovered a support. Waiting for saplings never counts as a stall. Gives up on
+   * recovered a support. Deferred planting never counts as a movement stall. Gives up on
    * the saved tree after MAX_STALLED_PASSES so the operator can reposition the bot.
    */
   trackStall(error, progressBefore, scaffoldsBefore) {

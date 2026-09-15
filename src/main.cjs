@@ -37,6 +37,7 @@ if (require.main === module) {
   }, 500)
   server.on('error', (error) => {
     clearInterval(ticker)
+    fleet.events.close()
     console.error(
       error.code === 'EADDRINUSE'
         ? 'The control room is already running at http://127.0.0.1:4317.'
@@ -47,6 +48,7 @@ if (require.main === module) {
   function shutdown() {
     clearInterval(ticker)
     for (const bot of Object.values(fleet)) bot.disconnect()
+    fleet.events.close()
     server.close()
     server.closeAllConnections()
   }

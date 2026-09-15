@@ -331,7 +331,7 @@ function listenBot() {
     }),
   )
   const current = selectedBot
-  events = new EventSource(botUrl('/api/events'))
+  events = new EventSource(botUrl('/api/events?events=none&snapshotMs=100'))
   events.onopen = () => {
     if (current !== selectedBot) return
     connected = true

@@ -89,6 +89,7 @@ function resolveProfile(profile) {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile))
     throw new Error('Each bot profile must be an object.')
   const { id, username } = profile
+  if (id === 'events') throw new Error('Bot profile ID events is reserved for the fleet event bus.')
   if (!/^[a-z][a-z0-9_-]{0,31}$/.test(id || '') || !/^[a-zA-Z0-9_]{1,16}$/.test(username || ''))
     throw new Error('Profiles need a unique ID and a valid Minecraft username.')
   const fallback = skillForAlias(profile.skill || 'farmer')

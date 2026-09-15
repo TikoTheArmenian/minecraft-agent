@@ -122,6 +122,21 @@ The OpenAI model receives observations and answers direct mentions or whispers. 
 
 Start with **Bot activity** on the website. Check the skill's decision, current action, latest error, and time since the position changed. Those distinguish “waiting for growth” from “trying to reach a block.”
 
+### Travel telemetry
+
+Each `Travel` instance publishes its diagnostics on `agent.state.task.travel`:
+
+| Field | Contents |
+| --- | --- |
+| `route.path` | The latest `path_update` path as detached `{x, y, z}` coordinates; an empty result has an empty path. Walking, resets, and cleanup do not consume or erase this snapshot. |
+| `route.search` | Search details associated with that path: `status`, `searchRadius`, `visitedNodes`, `generatedNodes`, `cost`, `time` (milliseconds), `updatedAt`, and `source: 'walking'`. Missing metrics are `null`; a radius of `-1` means unlimited. |
+| `route.partialEndpoint` | The current timeout segment's selected endpoint, available before the bot reaches it. A new path result clears it until another endpoint is selected. |
+| `route.segments` | Up to 128 selected partial segments in order, each with `endpoint`, `plannedAt`, and `reachedAt` (`null` until reached). This preserves the chain through subsequent searches. |
+| `search` | The latest search details, with `source: 'walking'` or `'preview'`. Construction and pickup previews report their actual radius (64 or 12) without replacing `route`. |
+| `events` | The latest 128 structured stall/retry events: `type`, `reason`, `at`, `position`, `phase`, `destination`, and relevant attempt, idle duration, or segment details. These also appear in activity-log `details`, with `taskId`. |
+
+Timestamps use epoch milliseconds. Search slices update state immediately; partial-result broadcasts are limited to once per second. Terminal search results and segment changes publish immediately. The final snapshot remains available after success, failure, or cancellation until another `Travel` instance replaces it. These fields support viewers and captured-state replay; they do not retain complete route history across separate trips.
+
 From a Terminal in this project:
 
 ```sh

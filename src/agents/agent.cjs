@@ -148,6 +148,7 @@ class Agent extends EventEmitter {
       directory || new PeerDirectory({ agents: () => this.fleet || { [this.id]: this } })
     ).forAgent(this)
     this.messages = new MessageRouter(this, { directory: this.peerDirectory })
+    this.messages.on('delivery', (delivery) => this.emit('message.delivery', delivery))
     this.messages.on('message', (message) => this.supervisor?.enqueue('peer.message', message))
     this.messages.on('issue', (issue) =>
       this.log(
@@ -334,6 +335,7 @@ class Agent extends EventEmitter {
       })
       const current = () => epoch === this.epoch && this.bot === bot
       require('../minecraft/teleport.cjs').installTeleportHandling(this, bot, current)
+      require('../world/volume.cjs').trackPath(bot)
       let lastPath = '',
         lastPathAt = 0
       bot.on('path_update', (result) => {

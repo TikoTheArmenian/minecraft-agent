@@ -129,16 +129,19 @@ test('API validates JSON and retains the conversation after fetching state again
   assert.ok(state.messages.some(m=>m.role==='user'&&m.text==='position'))
   assert.equal((await fetch(base+'/api/unknown')).status,404)
 })
-test('EventSource disconnect removes its agent listener',async t=>{
+test('EventSource disconnect removes its typed event listeners',async t=>{
   const {agent}=setup(t)
+  const {EVENT_TYPES}=require('../src/web/events.cjs')
+  const before=Object.fromEntries(EVENT_TYPES.map(type=>[type,agent.listenerCount(type)]))
   const server=createApp(agent).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
   t.after(()=>{server.closeAllConnections();server.close()})
   const controller=new AbortController()
   const response=await fetch(`http://127.0.0.1:${server.address().port}/api/events`,{signal:controller.signal})
   const reader=response.body.getReader();await reader.read()
-  assert.equal(agent.listenerCount('state'),1)
-  controller.abort();await new Promise(r=>setTimeout(r,30))
+  for(const type of EVENT_TYPES)assert.equal(agent.listenerCount(type),before[type]+1)
   assert.equal(agent.listenerCount('state'),0)
+  controller.abort();await new Promise(r=>setTimeout(r,30))
+  for(const type of EVENT_TYPES)assert.equal(agent.listenerCount(type),before[type])
 })
 test('a synchronous pathfinder error is reported without leaving a running task',async t=>{
   const {agent}=setup(t);agent.bot.pathfinder.goto=()=>{throw new Error('Path calculation failed')}
@@ -161,7 +164,7 @@ test('a burst of state changes reaches the browser without closing its event str
   t.after(()=>{server.closeAllConnections();server.close()})
   const abort=new AbortController()
   t.after(()=>abort.abort())
-  const response=await fetch(`http://127.0.0.1:${server.address().port}/api/events`,{signal:abort.signal})
+  const response=await fetch(`http://127.0.0.1:${server.address().port}/api/events?events=none&snapshotMs=100`,{signal:abort.signal})
   const reader=response.body.getReader();await reader.read()
   for(let n=0;n<2000;n++){agent.state.burst=n;agent.publish()}
   const update=await reader.read()
@@ -170,6 +173,71 @@ test('a burst of state changes reaches the browser without closing its event str
   assert.equal(JSON.parse(text.split('data: ')[1]).burst,1999)
   agent.state.burst=2000;agent.publish()
   assert.equal((await reader.read()).done,false)
+})
+
+test('event subscription options are validated before opening the stream',async t=>{
+  const {agent}=setup(t)
+  const server=createApp(agent).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+  t.after(()=>{server.closeAllConnections();server.close()})
+  const url=`http://127.0.0.1:${server.address().port}/api/events`
+  for(const query of ['events=unknown','events=skill.result%0Aevent%3Aevil','events=a&events=b','events=',
+    'snapshotMs=0','snapshotMs=99','snapshotMs=60001','snapshotMs=1e3','snapshotMs=100&snapshotMs=200']) {
+    const response=await fetch(`${url}?${query}`)
+    assert.equal(response.status,400,query)
+    assert.match(response.headers.get('content-type'),/application\/json/)
+    assert.equal(typeof (await response.json()).error,'string')
+  }
+})
+
+async function readEvents(t,url) {
+  const abort=new AbortController();t.after(()=>abort.abort())
+  const response=await fetch(url,{signal:abort.signal})
+  assert.equal(response.status,200)
+  const reader=response.body.getReader(),decoder=new TextDecoder()
+  let buffer=''
+  return async()=>{
+    while(true) {
+      const end=buffer.indexOf('\n\n')
+      if(end>=0) {
+        const frame=buffer.slice(0,end);buffer=buffer.slice(end+2)
+        if(!frame.includes('data: '))continue
+        return {type:frame.match(/^event: (.+)$/m)?.[1] || 'message',data:JSON.parse(frame.match(/^data: (.+)$/m)[1])}
+      }
+      const chunk=await reader.read()
+      assert.equal(chunk.done,false,'event stream remains open')
+      buffer+=decoder.decode(chunk.value,{stream:true})
+    }
+  }
+}
+
+test('named SSE delivers actual skill results and message statuses only for the selected bot', {timeout:5000}, async t=>{
+  const {agent:marc}=setup(t),tree=setup(t)
+  tree.agent.id='tree'
+  const server=createApp(marc,{marc,tree:tree.agent}).listen(0,'127.0.0.1')
+  await new Promise(r=>server.once('listening',r))
+  t.after(()=>{server.closeAllConnections();server.close()})
+  const url=`http://127.0.0.1:${server.address().port}`
+  const options='/api/events?events=skill.result,message.delivery&snapshotMs=60000'
+  const marcNext=await readEvents(t,url+'/bots/marc'+options),treeNext=await readEvents(t,url+'/bots/tree'+options)
+  assert.equal((await marcNext()).type,'message')
+  assert.equal((await treeNext()).type,'message')
+  marc.messages.deliveries.set('marc-delivery',{id:'marc-delivery'})
+  marc.messages.reset()
+  tree.agent.messages.deliveries.set('tree-delivery',{id:'tree-delivery'})
+  tree.agent.messages.reset()
+  for(const [next,botId,id] of [[marcNext,marc.id,'marc-delivery'],[treeNext,'tree','tree-delivery']]) {
+    const event=await next()
+    assert.equal(event.type,'message.delivery')
+    assert.equal(event.data.botId,botId)
+    assert.deepEqual(event.data.payload,{id,status:'cancelled',reason:'SESSION_CHANGED'})
+  }
+  tree.agent.command('go to 10 64 0');await new Promise(setImmediate)
+  tree.agent.bot.entity.position.x=10;tree.resolve()
+  const result=await treeNext()
+  assert.equal(result.type,'skill.result')
+  assert.equal(result.data.botId,'tree')
+  assert.equal(result.data.payload.outcome,'succeeded')
+  assert.equal(result.data.payload.runId,tree.agent.state.task.runId)
 })
 
 test('fleet commands, maps, logs and state remain isolated; global stop reaches all four',async t=>{
@@ -195,6 +263,46 @@ test('fleet commands, maps, logs and state remain isolated; global stop reaches 
   assert.deepEqual(Object.keys(await (await fetch(url+'/api/fleet')).json()),['marc','tree','barneett','sam'])
   assert.equal((await post('/api/stop-all',{})).status,200);assert.equal(stopped,4)
   assert.equal((await post('/bots/unknown/api/command',{text:'stop'})).status,404)
+})
+
+test('one fleet SSE subscription receives both bots through the shared bus and periodic fleet snapshots', {timeout:5000}, async t=>{
+  const {agent:marc}=setup(t),{agent:tree}=setup(t)
+  tree.id='tree'
+  const fleet={marc,tree},recorded=[]
+  const app=createApp(marc,fleet)
+  const sourceListeners=marc.listenerCount('travel.route')
+  createApp(marc,fleet)
+  assert.equal(marc.listenerCount('travel.route'),sourceListeners,'mounting another app does not duplicate the bus')
+  fleet.events.on('event',e=>recorded.push(e))
+  const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r))
+  t.after(()=>{server.closeAllConnections();server.close();fleet.events.close()})
+  const url=`http://127.0.0.1:${server.address().port}`
+  assert.equal((await fetch(url+'/api/fleet/events?events=unknown')).status,400)
+  const next=await readEvents(t,url+'/api/fleet/events?events=travel.route,skill.result&snapshotMs=1000')
+  const initial=await next()
+  assert.equal(initial.type,'message')
+  assert.deepEqual(Object.keys(initial.data),['marc','tree'])
+  assert.equal(initial.data.marc.profile.id,marc.profile.id)
+  assert.equal(fleet.events.listenerCount('travel.route'),1)
+  assert.equal(marc.listenerCount('travel.route'),sourceListeners,'SSE subscribes only to the fleet bus')
+  marc.emit('travel.route',{taskId:1,route:{path:[{x:1,y:64,z:0}]}})
+  tree.emit('skill.progress',{counts:{mined:1}})
+  tree.emit('skill.result',{runId:'tree-run',outcome:'succeeded'})
+  for(const expected of [recorded[0],recorded[2]]) {
+    const event=await next()
+    assert.equal(event.type,expected.type)
+    assert.deepEqual(event.data,expected,'the original envelope is sent without rewrapping or restamping')
+  }
+  tree.state.fleetTest=true
+  const updated=await next()
+  assert.equal(updated.type,'message')
+  assert.equal(updated.data.tree.fleetTest,true)
+  assert.deepEqual(Object.keys(updated.data),['marc','tree'])
+  server.closeAllConnections()
+  await new Promise(r=>setTimeout(r,30))
+  assert.equal(fleet.events.listenerCount('travel.route'),0)
+  assert.equal(fleet.events.listenerCount('skill.result'),0)
+  assert.equal(marc.listenerCount('travel.route'),sourceListeners,'closing a viewer keeps in-process forwarding alive')
 })
 
 test('Jerry preflight permits Marc online and checks its own duplicate identity',async t=>{

@@ -80,3 +80,15 @@ body[data-bot="barneett"] .bot-tabs button[aria-pressed="true"] { background:#c9
 #cost-error,#cost-alerts { color:#f3cc91; line-height:1.6; }
 #cost-budget-status { color:#c7e3ab; }
 @media(max-width:700px) { .cost-cards,.cost-breakdowns { grid-template-columns:1fr; } .cost-toolbar label { flex:1 1 140px; } .cost-toolbar input { max-width:none; width:100%; } }
+
+/* Rotatable block volume, mounted independently of the map action controls. */
+.voxel-view { margin: 16px 0 24px; }
+.voxel-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.voxel-toolbar > strong { margin-right: auto; }
+.voxel-toolbar label { display: flex; align-items: center; gap: 8px; }
+.voxel-toggle input { width: auto; }
+.voxel-canvas { height: clamp(320px, 52vw, 580px); position: relative; background: #101c25; border: 1px solid #304854; border-radius: 12px; overflow: hidden; touch-action: none; }
+.voxel-canvas canvas { display: block; }
+.voxel-empty { height: 100%; display: grid; place-content: center; text-align: center; padding: 24px; color: #9aafa3; }
+.voxel-legend { color: #c4d6de; font-size: 12px; }
+.map-planner > summary { cursor: pointer; padding: 14px 0; font-weight: 600; border-top: 1px solid #304854; }

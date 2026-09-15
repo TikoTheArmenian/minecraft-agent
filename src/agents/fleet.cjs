@@ -8,6 +8,7 @@ const {
   loadProfiles,
 } = require('./profiles.cjs')
 const { ResourceLeases } = require('../runtime/resource-leases.cjs')
+const { installFleetEvents } = require('./fleet-events.cjs')
 function buildFleet(Agent, options = {}) {
   const { profiles: configured = loadProfiles(), ...dependencies } = options
   const fleet = {}
@@ -36,6 +37,7 @@ function buildFleet(Agent, options = {}) {
   }
   // Compatibility for legacy views; coordination uses the directory's scoped interface.
   for (const worker of Object.values(fleet)) worker.fleet = fleet
+  installFleetEvents(fleet)
   return fleet
 }
 module.exports = { profiles, profileFor, publicProfile, buildFleet }

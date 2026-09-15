@@ -43,11 +43,15 @@ test('partial harvest resumes the captured tree, including disconnected branches
   h.work.reachLog=h.work.approach;await h.work.harvestTree()
   assert.equal(h.dug.length,11);assert.equal(h.work.plan.trees,1)
 })
-test('missing planting stock preserves trunk and cancellation prevents subsequent actions',async()=>{
+test('missing planting stock harvests the tree and saves replanting without blocking',async()=>{
   const h=setup();h.work.find=()=>[]
-  await assert.rejects(h.work.harvestTree(),/reserved for replanting/)
-  assert.equal(h.dug.length,0)
-  h.add('oak_sapling');h.work.cancel();await assert.rejects(h.work.harvestTree(),/Cancelled/)
+  await h.work.harvestTree()
+  assert.equal(h.dug.length,11);assert.equal(h.work.job,null)
+  assert.equal(h.work.plan.trees,0);assert.equal(h.work.plan.pendingReplants,1)
+  assert.equal(h.work.pendingReplants()[0][1].removed,11)
+})
+test('cancellation before harvesting prevents all actions even without planting stock',async()=>{
+  const h=setup();h.work.cancel();await assert.rejects(h.work.harvestTree(),/Cancelled/)
   assert.equal(h.dug.length,0)
 })
 test('logs without roots or a canopy and oversized trees are refused',()=>{
@@ -85,7 +89,7 @@ test('unfinished jobs survive a controller restart with their detached branches'
   assert.ok(resumed.job.logs[0] instanceof Vec3)
 })
 
-test('dark oak requires planting reserves for the entire four-sapling footprint',async()=>{
+test('dark oak retains the entire four-sapling planting requirement',async()=>{
   const h=fixture()
   for(let x=0;x<2;x++)for(let z=0;z<2;z++)for(let y=64;y<67;y++)h.set('dark_oak_log',new Vec3(x,y,z))
   h.set('dark_oak_leaves',new Vec3(0,67,0)).getProperties=()=>({persistent:false})
@@ -93,7 +97,7 @@ test('dark oak requires planting reserves for the entire four-sapling footprint'
   work.job=inspectTree(h.bot,h.bot.blockAt(new Vec3(0,64,0)))
   assert.equal(work.job.roots.length,4)
   h.add('dark_oak_sapling',3);work.find=()=>[];work.pickup=async()=>{}
-  await assert.rejects(work.plantingStock(work.job),/Need 4/)
+  await assert.rejects(work.plantingStock(work.job),/3\/4 dark oak sapling/)
   h.add('dark_oak_sapling');await work.plantingStock(work.job)
 })
 
@@ -297,12 +301,178 @@ test('dirt reserve counts dirt rather than other construction materials', async 
   h.work.gather=async(names,enough,label)=>{
     assert.deepEqual(names,['dirt','grass_block'])
     assert.equal(enough(),false)
-    assert.match(label,/128/)
+    assert.match(label,/dirt for tree access/)
     h.add('dirt',128);assert.equal(enough(),true);gathered=true
   }
   h.work.harvestTree=async()=>{assert.equal(gathered,true);h.work.cancel();h.work.check()}
   await h.work.run()
   assert.equal(gathered,true)
+})
+
+test('empty-handed startup crafts tools from the saved trunk, gathers dirt and replants its drop', async () => {
+  const h=setup(),root=new Vec3(0,64,0)
+  h.set('dirt',new Vec3(4,63,0))
+  for(let x=10;x<38;x++)h.set('dirt',new Vec3(x,63,0))
+  const dig=h.bot.dig
+  h.bot.dig=async block=>{
+    if(block.name==='oak_leaves') {
+      assert.equal(h.dug.filter(name=>name==='oak_log').length,11,'cut the tree before requiring saplings')
+      h.add('oak_sapling')
+    }
+    await dig(block)
+  }
+  await h.work.farmOnePass()
+  assert.ok(h.crafted.includes('wooden_axe'))
+  assert.ok(h.crafted.includes('wooden_shovel'))
+  assert.equal(h.dug.filter(name=>name==='oak_log').length,11)
+  assert.ok(h.work.count('dirt')>=26)
+  assert.ok(h.work.count('dirt')<128,'a full storage batch is not a startup requirement')
+  assert.equal(h.bot.blockAt(root).name,'oak_sapling')
+  assert.equal(h.work.plan.trees,1)
+  assert.equal(h.agent.treeJobs.size,0)
+})
+
+test('startup retrieves axe, shovel and dirt before harvesting when storage has them', async t => {
+  const h=setup(),order=[]
+  t.mock.method(require('../src/capabilities/local-supplies.cjs'),'restockLocal',async(w,names,target)=>{
+    assert.equal(w,h.work)
+    if(names.includes('iron_axe')){h.add('iron_axe');order.push('axe')}
+    else if(names.includes('iron_shovel')){h.add('iron_shovel');order.push('shovel')}
+    else if(names.includes('dirt')){assert.equal(target,128);h.add('dirt',128);order.push('dirt')}
+    else h.add('oak_sapling')
+  })
+  const dig=h.bot.dig
+  h.bot.dig=async block=>{if(block.name==='oak_log')assert.deepEqual(order,['axe','shovel','dirt']);await dig(block)}
+  await h.work.farmOnePass()
+  assert.equal(h.crafted.length,0);assert.equal(h.work.plan.trees,1)
+})
+
+test('partial dirt supplies and unavailable tools still allow productive harvesting', async t => {
+  const h=setup();h.add('oak_sapling')
+  t.mock.method(require('../src/capabilities/local-supplies.cjs'),'restockLocal',async()=>{throw new Error('Storage unavailable')})
+  h.work.gather=async()=>{h.add('dirt',4);throw Object.assign(new Error('Only four safe dirt blocks'),{code:'BLOCKED'})}
+  await h.work.farmOnePass()
+  assert.equal(h.work.plan.trees,1);assert.equal(h.dug.filter(name=>name==='oak_log').length,11)
+})
+
+test('supply preparation propagates cancellation, handoff and air recovery', async t => {
+  const supplies=require('../src/capabilities/local-supplies.cjs')
+  for(const code of ['CANCELLED','HANDOFF','AIR_RECOVERY']) {
+    const h=setup(),error=Object.assign(new Error(code),{code})
+    const mock=t.mock.method(supplies,'restockLocal',async()=>{throw error})
+    await assert.rejects(h.work.prepareTools(),e=>e===error)
+    assert.equal(h.dug.length,0)
+    mock.mock.restore()
+  }
+})
+
+test('worn tools are replaced, and supply failure retries have a cooldown', async t => {
+  const h=setup(),axe=h.add('iron_axe'),calls=[]
+  axe.durabilityUsed=h.bot.registry.itemsByName.iron_axe.maxDurability-1
+  h.add('iron_shovel')
+  t.mock.method(require('../src/capabilities/local-supplies.cjs'),'restockLocal',async(w,names,target)=>{
+    calls.push(target);assert.ok(names.includes('iron_axe'));throw new Error('Empty storage')
+  })
+  h.work.job.logs=[]
+  await h.work.prepareTools();await h.work.prepareTools()
+  assert.deepEqual(calls,[2]);assert.equal(h.work.tool('axe'),undefined)
+})
+
+test('a sapling shortage lets the next mature tree start and the saved planting finish later', async () => {
+  const h=setup();h.work.find=()=>[]
+  await h.work.harvestTree()
+  const firstKey=h.work.pendingReplants()[0][0],root=new Vec3(10,64,0)
+  for(let y=64;y<67;y++)h.set('birch_log',new Vec3(10,y,0))
+  h.set('birch_leaves',new Vec3(10,67,0)).getProperties=()=>({persistent:false})
+  h.add('iron_axe');h.add('iron_shovel');h.add('dirt',64);h.add('birch_sapling')
+  await h.work.farmOnePass()
+  assert.equal(h.bot.blockAt(root).name,'birch_sapling')
+  assert.equal(h.work.plan.pendingReplants,1)
+  h.add('oak_sapling');h.work.replantRetries.set(firstKey,0)
+  await h.work.retryReplants()
+  assert.equal(h.bot.blockAt(new Vec3(0,64,0)).name,'oak_sapling')
+  assert.equal(h.work.plan.pendingReplants,0);assert.equal(h.agent.treeJobs.size,0)
+})
+
+test('deferred planting survives restart, and failed recovery keeps it active', async t => {
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path')
+  const h=setup(),dir=fs.mkdtempSync(path.join(os.tmpdir(),'tree-replant-'))
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}))
+  h.work.jobFile=path.join(dir,'tree-jobs.json');h.work.find=()=>[]
+  await h.work.harvestTree()
+  delete h.agent.treeJobs;h.agent.dataDir=dir
+  const resumed=new TreeFarm(h.agent,1)
+  assert.equal(resumed.job,null);assert.equal(resumed.plan.pendingReplants,1)
+  const job=resumed.pendingReplants()[0][1]
+  assert.ok(job.roots[0] instanceof Vec3)
+  resumed.plantingStock=async()=>{throw new Error('Cannot safely recover a canopy step')}
+  await assert.rejects(resumed.retryReplants(),/recover/)
+  assert.equal(resumed.job,job);assert.equal(h.agent.treeJobs.get(resumed.jobKey),job)
+  assert.equal(resumed.pendingReplants().length,0)
+})
+
+test('missing planting soil is restored with dirt and confirmed before replanting', async () => {
+  const h=setup(),soil=new Vec3(0,63,0)
+  h.add('oak_sapling');h.add('dirt',1);h.set('air',soil)
+  await h.work.harvestTree()
+  assert.equal(h.bot.blockAt(soil).name,'dirt')
+  assert.equal(h.bot.blockAt(soil.offset(0,1,0)).name,'oak_sapling')
+  assert.equal(h.work.plan.trees,1);assert.equal(h.work.count('dirt'),0)
+})
+
+test('changed solid planting soil is preserved and deferred instead of repeatedly pausing', async () => {
+  const h=setup(),soil=new Vec3(0,63,0)
+  h.add('oak_sapling');h.set('stone',soil)
+  await h.work.harvestTree()
+  assert.equal(h.bot.blockAt(soil).name,'stone')
+  assert.equal(h.work.plan.pendingReplants,1);assert.equal(h.work.job,null)
+  assert.equal(h.work.plan.trees,0)
+})
+
+test('already replanted roots need no spare sapling to finish a saved job', async () => {
+  const h=setup(),job=h.work.job
+  for(const pos of job.logs)h.set('air',pos)
+  h.set('oak_sapling',job.roots[0])
+  await h.work.harvestTree()
+  assert.equal(h.work.plan.trees,1);assert.equal(h.work.plan.pendingReplants,0)
+})
+
+test('dirt gathering and crafting table placement preserve active and deferred roots', async () => {
+  const h=setup(),job=h.work.job
+  h.work.find=()=>[];await h.work.harvestTree()
+  assert.equal(h.work.safeTarget(h.bot.blockAt(new Vec3(2,63,0))),false)
+  h.add('crafting_table')
+  await assert.rejects(h.work.placeItem('crafting_table',h.bot.blockAt(job.roots[0].offset(0,-1,0))),/planting spot/)
+  assert.equal(h.placed.length,0)
+})
+
+test('safe surface dirt is filtered before the scan result cap', () => {
+  const h=setup(),safe=h.set('dirt',new Vec3(8,63,0)),buried=h.bot.blockAt(new Vec3(0,62,0))
+  h.bot.findBlocks=({useExtraInfo})=>{
+    assert.equal(typeof useExtraInfo,'function')
+    assert.equal(useExtraInfo(buried),false)
+    assert.equal(useExtraInfo(h.bot.blockAt(new Vec3(2,63,0))),false)
+    assert.equal(useExtraInfo(safe),true)
+    return [safe.position]
+  }
+  assert.deepEqual(h.work.find(['dirt','grass_block'],32,b=>h.work.safeTarget(b)),[safe])
+})
+
+test('storage reserves saplings for all deferred trees and ignores other worlds', () => {
+  const h=setup(),job=h.work.job
+  for(let x=1;x<=10;x++)h.agent.treeJobs.set(`${h.work.jobKey}:replant:${x},64,0`,{...job,roots:[new Vec3(x,64,0)],planted:[]})
+  h.agent.treeJobs.set('Other:overworld:replant:0,64,0',{...job})
+  h.work.saveJob()
+  const {reserve}=require('../src/storage/policy.cjs')
+  assert.equal(h.work.plan.pendingReplants,10)
+  assert.equal(reserve(h.add('oak_sapling',16),h.work),11)
+})
+
+test('a usable spare axe is recognized alongside a worn axe of the same type', () => {
+  const h=setup(),worn=h.add('iron_axe')
+  worn.durabilityUsed=h.bot.registry.itemsByName.iron_axe.maxDurability-1
+  h.items.push({...worn,durabilityUsed:0})
+  assert.equal(h.work.tool('axe'),'iron_axe')
 })
 
 test('support recovery reaches dry footing before settling or digging', async () => {
@@ -446,28 +616,24 @@ test('failed farmland stance excludes both actual and pathfinder cells',async()=
   assert.equal(routes,3)
 })
 
-test('missing saplings keep Barneett running beyond three retries and resume when supplied',async()=>{
-  const h=setup();h.agent.username='Barneett';h.add('dirt',64)
+test('missing saplings keep Barneett working and deferred planting resumes when supplied',async()=>{
+  const h=setup();h.agent.username='Barneett';h.add('dirt',64);h.add('iron_axe');h.add('iron_shovel')
   h.work.find=()=>[]
   let waits=0,completed=false
-  h.work.harvestTree=async()=>{
-    await h.work.plantingStock(h.work.job)
-    completed=true
-    h.work.cancel()
-    h.work.check()
-  }
   h.work.pause=async ms=>{
     h.work.check()
+    if(ms<10000)return
     assert.equal(ms,10000)
     assert.equal(h.work.stalledPasses,0)
     assert.equal(h.work.plan.status,'running')
-    assert.match(h.work.plan.decision,/Drop saplings beside Barneett/)
-    if(++waits===4)h.add('oak_sapling')
+    assert.equal(h.dug.filter(name=>name==='oak_log').length,11)
+    if(h.work.plan.trees===1){completed=true;h.work.cancel();h.work.check()}
+    if(++waits===4){h.add('oak_sapling');h.work.replantRetries.clear()}
   }
   await h.work.run()
   assert.equal(waits,4)
   assert.equal(completed,true)
-  assert.equal(h.dug.length,0)
+  assert.equal(h.dug.length,11)
 })
 test('real movement stalls name the active tree farming bot',async()=>{
   const h=setup();h.agent.username='Barneett';h.add('dirt',64)

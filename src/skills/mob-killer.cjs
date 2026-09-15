@@ -15,6 +15,7 @@ const { goals } = require('mineflayer-pathfinder')
 const { ResourceWork } = require('../capabilities/resources.cjs')
 const { Travel, TravelMovements } = require('../navigation/travel.cjs')
 const { HOSTILES } = require('../world/observations.cjs')
+const { MeleeCombat } = require('../minecraft/combat.cjs')
 const storage = require('../storage/service.cjs')
 
 const DEFAULT_RADIUS = 24
@@ -25,7 +26,6 @@ const PURSUIT_MS = 8000 // One bounded chase attempt; the monitor re-evaluates t
 const ATTACK_RANGE = 3.0 // Eye to the nearest point of the mob's hitbox (vanilla melee reach).
 const HOLD_RANGE = 8 // Unreachable mobs this close usually come to us: hold ground before giving up.
 const HOLD_MS = 6000
-const ATTACK_COOLDOWN_MS = 600 // Vanilla sword cooldown is 0.625 s; faster swings deal reduced damage.
 const HIT_BUDGET = 40 // Swings per target before it is cooled down as unkillable.
 const ENGAGE_MS = 90000 // Total time per target, including chases.
 const CREEPER_DISTANCE = 5
@@ -139,6 +139,7 @@ class MobKiller extends ResourceWork {
     this.cooldowns = new Map() // entity id → { until, hard }; hard ones also apply to mobs in reach
     this.dead = new Set() // entity ids the server reported dead while we fought them
     this.target = null
+    this.combat = new MeleeCombat(this)
     this.armedFor = null
     this.swordAskedAt = 0
     this.nextStoreAt = 0
@@ -273,10 +274,16 @@ class MobKiller extends ResourceWork {
       }
       weapon = this.weapon()
     }
-    if (weapon && (this.armedFor !== target.id || this.bot.heldItem?.slot !== weapon.slot)) {
+    if (
+      weapon &&
+      (this.armedFor !== target.id ||
+        this.bot.heldItem?.type !== weapon.type ||
+        this.bot.heldItem?.slot !== weapon.slot)
+    ) {
       await this.equip(weapon)
       this.armedFor = target.id
     }
+    if (!weapon && this.bot.heldItem && this.fistsAllowed(target.name)) await this.equip(null)
     return weapon
   }
   // --- combat ------------------------------------------------------------------------------
@@ -330,12 +337,26 @@ class MobKiller extends ResourceWork {
     }
     this.check()
   }
-  async strike(entity) {
-    await this.briefly(this.bot.lookAt(this.aimPoint(entity), true))
-    if (!this.bot.entities[entity.id]) return false
-    this.bot.attack(entity)
-    await this.pause(ATTACK_COOLDOWN_MS)
-    return true
+  async strike(entity, defending = false) {
+    return this.combat.strike(entity, {
+      aimPoint: (live) => this.aimPoint(live),
+      canAttack: (live) =>
+        this.hostile(live) &&
+        live.name !== 'creeper' &&
+        !this.dead.has(live.id) &&
+        !this.cooldowns.get(live.id)?.hard &&
+        !this.beyondBound(live) &&
+        !this.creeperNear() &&
+        (defending || this.bot.health > RETREAT_HEALTH) &&
+        this.armedForMelee(live) &&
+        this.inReach(live),
+    })
+  }
+  armedForMelee(entity) {
+    const held = this.bot.heldItem
+    if (!held) return this.fistsAllowed(entity.name)
+    const max = this.bot.registry.items[held.type]?.maxDurability
+    return WEAPON.test(held.name) && !(max && (held.durabilityUsed || 0) >= max - 1)
   }
   // One bounded chase. GoalFollow is dynamic, so the route updates as the mob moves. The monitor
   // clears the goal as soon as the target is in reach, invalid, out of bounds, or the fight must
@@ -402,16 +423,22 @@ class MobKiller extends ResourceWork {
       holdUntil = null,
       last = target.position.clone()
     const started = Date.now()
+    const died = (entity) => {
+      if (entity === target) this.dead.add(id)
+    }
+    this.bot.on('entityDead', died)
     try {
       while (true) {
         this.check()
         const live = this.bot.entities[id]
-        if (!live || live.isValid === false || this.dead.has(id)) {
-          if (hits > 0) {
+        if (!live || live !== target || live.isValid === false || this.dead.has(id)) {
+          if (hits > 0 && this.dead.has(id)) {
             await this.recordKill(name, last)
             return true
           }
-          this.decide(`${name.replaceAll('_', ' ')} vanished before ${me} could reach it.`)
+          this.decide(
+            `${name.replaceAll('_', ' ')} vanished without confirmed death; no kill counted.`,
+          )
           return false
         }
         if (!finite(live.position)) {
@@ -454,6 +481,13 @@ class MobKiller extends ResourceWork {
         }
         if (this.inReach(live)) {
           holdUntil = null
+          if (!this.armedForMelee(live)) {
+            await this.arm(live)
+            if (!this.armedForMelee(live)) {
+              this.coolDown(live, 'No usable melee weapon remains; stopping this fight.')
+              return false
+            }
+          }
           if (await this.strike(live)) hits++
           continue
         }
@@ -493,6 +527,8 @@ class MobKiller extends ResourceWork {
         }
       }
     } finally {
+      this.bot.off('entityDead', died)
+      this.combat.releaseShield()
       this.target = null
       this.plan.target = null
       this.publishPlan()
@@ -548,7 +584,10 @@ class MobKiller extends ResourceWork {
           `Defending at health ${this.bot.health}/20: ${threat.name.replaceAll('_', ' ')} is in reach.`,
         )
         await this.arm(threat)
-        await this.strike(threat)
+        if (!(await this.strike(threat, true))) {
+          await this.eat()
+          await this.pause(300)
+        }
         continue
       }
       this.decide(
@@ -663,16 +702,7 @@ class MobKiller extends ResourceWork {
         this.sync()
       }
     }
-    const gone = (entity) => {
-      if (entity && this.target && entity.id === this.target.id) this.dead.add(entity.id)
-    }
-    const died = (entity) => {
-      if (entity && entity.id !== this.bot.entity.id && HOSTILES.has(entity.name))
-        this.dead.add(entity.id)
-    }
     this.bot.on('playerCollect', collect)
-    this.bot.on('entityGone', gone)
-    this.bot.on('entityDead', died)
     const guard = setInterval(() => {
       if (this.cancelled()) return
       const danger = this.safety()
@@ -732,8 +762,7 @@ class MobKiller extends ResourceWork {
       if (reason?.fatal && reason.code !== 'HANDOFF') this.failure = reason
     } finally {
       this.bot.off('playerCollect', collect)
-      this.bot.off('entityGone', gone)
-      this.bot.off('entityDead', died)
+      this.combat.releaseShield()
       clearInterval(guard)
       this.plan.waitingUntil = null
       this.plan.target = null
