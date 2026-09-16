@@ -295,22 +295,22 @@ test('support recovery refuses changed blocks and unsafe drops', async () => {
   assert.equal(h.bot.blockAt(p).name,'dirt')
 })
 
-test('dirt reserve counts dirt rather than other construction materials', async () => {
+test('carried construction blocks satisfy tree access without an unnecessary dirt trip', async () => {
   const h=setup();h.add('cobblestone',64)
-  let gathered=false
-  h.work.gather=async(names,enough,label)=>{
-    assert.deepEqual(names,['dirt','grass_block'])
-    assert.equal(enough(),false)
-    assert.match(label,/dirt for tree access/)
-    h.add('dirt',128);assert.equal(enough(),true);gathered=true
-  }
-  h.work.harvestTree=async()=>{assert.equal(gathered,true);h.work.cancel();h.work.check()}
-  await h.work.run()
-  assert.equal(gathered,true)
+  h.work.gather=async()=>assert.fail('Already carrying enough supports')
+  h.work.restock=async()=>assert.fail('Already carrying enough supports')
+  await h.work.prepareDirt()
+  assert.equal(h.work.count('dirt'),0)
 })
 
 test('empty-handed startup crafts tools from the saved trunk, gathers dirt and replants its drop', async () => {
   const h=setup(),root=new Vec3(0,64,0)
+  const reach=h.work.reachLog
+  h.work.reachLog=async pos=>{
+    await reach(pos)
+    // Starter wood is mined from the ground; keep the mocked stance on real support.
+    if(pos.y<=66)h.bot.entity.position=new Vec3(pos.x+2,64,pos.z)
+  }
   h.set('dirt',new Vec3(4,63,0))
   for(let x=10;x<38;x++)h.set('dirt',new Vec3(x,63,0))
   const dig=h.bot.dig
@@ -582,6 +582,71 @@ test('real physics descends natural canopy leaves only with a solid one-block la
   assert.equal(removed,3);assert.equal(h.bot.entity.position.floored().y,64)
 })
 
+test('Jerry descends the captured canopy to reach the lower birch trunk without building stairs', async () => {
+  const capture=require('./helpers/tree-descent-terrain.json')
+  const {fixture:physicsFixture,registry}=require('./helpers/travel-fixture.cjs')
+  const Block=require('prismarine-block')(registry),h=physicsFixture({stock:0}),key=p=>p.floored().toString()
+  const blocks=new Map(capture.blocks.map(([x,y,z,id])=>{
+    const b=Block.fromStateId(id,0);b.position=new Vec3(x,y,z);return [key(b.position),b]
+  }))
+  h.bot.blockAt=p=>h.changes.get(key(p))||blocks.get(key(p))||null
+  h.bot.entity.position=new Vec3(capture.position.x,capture.position.y,capture.position.z)
+  h.bot.canDigBlock=b=>b.position.offset(.5,.5,.5).distanceTo(h.bot.entity.position.offset(0,1.62,0))<4.5
+  h.bot.unequip=async()=>{h.bot.heldItem=null}
+  const removed=[]
+  h.bot.dig=async b=>{
+    removed.push(b.name)
+    const air=h.make('air',b.position);h.changes.set(key(b.position),air)
+    h.bot._client.emit('block_change',{location:b.position,type:air.stateId})
+  }
+  const work=new TreeFarm(h.agent,1),root=new Vec3(-455,66,1026)
+  work.job={species:'birch',roots:[root],logs:[root],removed:0,planted:[],scaffolds:[]}
+  assert.equal(work.canWork(root),false)
+  await h.simulate(new Promise(resolve=>setTimeout(resolve,10)))
+  await h.simulate(work.recoverScaffolds(),2000)
+  assert.equal(h.bot.entity.position.floored().y,66)
+  assert.equal(h.bot.blockAt(h.bot.entity.position.floored().offset(0,-1,0)).name,'smooth_stone')
+  assert.deepEqual(removed,['birch_leaves'])
+  assert.equal(h.placements.length,0)
+  await h.simulate(work.reachLog(root),2000)
+  assert.equal(work.canWork(root),true)
+  assert.equal(h.placements.length,0,'the lower trunk needs only an ordinary ground approach')
+})
+
+test('canopy descent refuses long falls, water, lava, hazards, occupied and unloaded landings', async () => {
+  for(const scenario of ['long fall','water','lava','magma_block','occupied','unloaded','persistent']) {
+    const h=setup(),feet=new Vec3(0,69,0),leaf=feet.offset(0,-1,0)
+    h.bot.entity.position=feet.offset(.5,0,.5);h.bot.entity.onGround=true
+    h.set('oak_leaves',leaf).getProperties=()=>({persistent:scenario==='persistent'})
+    h.set('air',leaf.offset(0,-1,0));h.set('air',leaf.offset(0,-2,0))
+    const support=h.set(scenario==='magma_block'?'magma_block':'dirt',leaf.offset(0,-3,0))
+    if(['water','lava'].includes(scenario))h.set(scenario,leaf.offset(0,-1,0))
+    if(scenario==='long fall')h.set('air',support.position)
+    if(scenario==='unloaded'){const at=h.bot.blockAt;h.bot.blockAt=p=>p.equals(support.position)?null:at(p)}
+    if(scenario==='occupied')h.bot.entities[2]={name:'cow',position:support.position.offset(.5,1,.5)}
+    await h.work.descendCanopy()
+    assert.equal(h.dug.length,0,scenario)
+  }
+})
+
+test('tool preparation never sends the farmer along an unreachable canopy route', async () => {
+  const h=setup();h.add('iron_axe')
+  h.work.canWork=()=>false
+  h.work.reachLog=async()=>assert.fail('Tool preparation must leave unreachable logs to the main harvest')
+  await h.work.prepareTools()
+  assert.equal(h.dug.length,0)
+})
+
+test('the next tree pass descends before attempting storage and supply gathering', async () => {
+  const h=setup(),events=[]
+  h.work.recoverScaffolds=async()=>events.push('descend')
+  h.work.prepareTools=async()=>events.push('tools')
+  h.work.prepareDirt=async()=>events.push('dirt')
+  h.work.harvestTree=async()=>events.push('harvest')
+  await h.work.farmOnePass()
+  assert.deepEqual(events,['descend','tools','dirt','harvest'])
+})
+
 test('Jerry can work from farmland over water without repeating an arrival',async()=>{
   const h=fixture(),work=new TreeFarm(h.agent,1),target=new Vec3(2,65,0)
   h.set('water',new Vec3(0,61,0));h.set('farmland',new Vec3(0,62,0))
@@ -641,4 +706,85 @@ test('real movement stalls name the active tree farming bot',async()=>{
   await h.work.run()
   assert.match(h.work.plan.decision,/Move Barneett to another side/)
   assert.doesNotMatch(h.work.plan.decision,/Jerry/)
+})
+
+test('Jerry reaches the captured last birch log using one carried plank and recovers the step',async()=>{
+  const capture=require('./helpers/tree-top-log-terrain.json')
+  const {fixture:physicsFixture,registry}=require('./helpers/travel-fixture.cjs')
+  const Block=require('prismarine-block')(registry),h=physicsFixture({stock:0}),key=p=>`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`
+  const blocks=new Map(capture.blocks.map(([x,y,z,id])=>{const b=Block.fromStateId(id,0);b.position=new Vec3(x,y,z);return [key(b.position),b]}))
+  h.bot.blockAt=p=>h.changes.get(key(p))||blocks.get(key(p))||null
+  h.bot.entity.position=new Vec3(capture.position.x,capture.position.y,capture.position.z)
+  h.bot.canDigBlock=b=>b.position.offset(.5,.5,.5).distanceTo(h.bot.entity.position.offset(0,1.62,0))<4.5
+  h.bot.inventory.emptySlotCount=()=>20;h.bot.unequip=async()=>{h.bot.heldItem=null}
+  const plank={name:'birch_planks',type:registry.itemsByName.birch_planks.id,count:1}
+  h.items.push(plank)
+  const dug=[]
+  h.bot.dig=async b=>{
+    dug.push(b.name)
+    const air=h.make('air',b.position);h.changes.set(key(b.position),air)
+    h.bot._client.emit('block_change',{location:b.position,type:air.stateId});h.bot.emit('blockUpdate',b,air)
+    if(b.name==='birch_planks')plank.count++
+  }
+  const work=new TreeFarm(h.agent,1),root=new Vec3(-461,66,1031),target=root.offset(0,6,0)
+  work.job={species:'birch',roots:[root],logs:Array.from({length:7},(_,i)=>root.offset(0,i,0)),removed:6,planted:[],scaffolds:[]}
+  h.agent.treeJobs.set(work.jobKey,work.job);work.pickup=async()=>{}
+  assert.equal(work.canWork(target),false)
+  await h.simulate(work.harvestLog(target),6000)
+  assert.equal(work.job.removed,7);assert.equal(work.plan.remaining,0)
+  assert.equal(h.placements.length,1)
+  assert.equal(work.job.scaffolds[0].name,'birch_planks')
+  await h.simulate(work.recoverScaffolds(),3000)
+  assert.equal(h.bot.entity.position.floored().y,66)
+  assert.equal(h.bot.blockAt(target).name,'air')
+  assert.equal(plank.count,1);assert.equal(work.job.scaffolds.length,0)
+  assert.ok(dug.includes('birch_log'));assert.ok(dug.includes('birch_planks'))
+})
+
+test('harvested wood supplies the last trunk step without a dirt trip or crafting table',async()=>{
+  const h=setup(),root=new Vec3(0,64,0)
+  h.work.job.logs=[root,root.offset(0,6,0)];h.add('birch_log')
+  h.work.restock=async()=>assert.fail('Use wood already carried')
+  h.work.gather=async()=>assert.fail('Use wood already carried')
+  await h.work.prepareDirt()
+  assert.deepEqual(h.crafted,['birch_planks']);assert.equal(h.work.canopyStock(),4)
+  assert.equal(h.work.count('crafting_table'),0)
+})
+
+test('missing dirt still tries local soil after storage failure, and cooldown clears only soil failures',async()=>{
+  const h=setup(),soil='(8, 63, 0):dirt',stone='(9, 63, 0):stone';let attempts=0
+  h.work.failedTargets.add(soil);h.work.failedTargets.add(stone)
+  h.work.restock=async()=>{throw new Error('Chest unreachable')}
+  h.work.gather=async()=>{
+    attempts++;assert.equal(h.work.failedTargets.has(soil),false);assert.equal(h.work.failedTargets.has(stone),true)
+    h.work.failedTargets.add(soil);throw new Error('Soil unreachable')
+  }
+  await h.work.prepareDirt();await h.work.prepareDirt();assert.equal(attempts,1)
+  h.work.nextDirtAttemptAt=0;await h.work.prepareDirt();assert.equal(attempts,2)
+})
+
+test('planting soil obtains actual dirt even when plenty of planks are carried',async()=>{
+  const h=setup(),root=new Vec3(0,64,0);h.add('oak_planks',64);h.set('air',root.offset(0,-1,0))
+  h.set('air',root)
+  h.bot.entity.position=new Vec3(2,64,0)
+  h.work.restock=async names=>{assert.deepEqual(names,['dirt']);h.add('dirt')}
+  const soil=await h.work.plantingSoil(root)
+  assert.equal(soil.name,'dirt');assert.equal(h.work.count('oak_planks'),64)
+})
+
+test('no materials still allows a natural route; exhausted access waits for resupply without pausing',async()=>{
+  const h=setup(),target=new Vec3(2,73,2);let routes=0
+  h.work.canWork=()=>routes===1
+  h.work.tryDirectCanopyPath=async()=>{routes++;return true}
+  h.work.clearSightLine=async()=>{}
+  await TreeFarm.prototype.reachLog.call(h.work,target)
+  assert.equal(routes,1)
+  h.work.canWork=()=>false;h.work.tryDirectCanopyPath=async()=>false
+  let failure
+  await assert.rejects(TreeFarm.prototype.reachLog.call(h.work,target),e=>{failure=e;return e.code==='WAITING_FOR_TREE_ACCESS'})
+  for(let i=0;i<5;i++)h.work.trackStall(failure,h.work.jobProgress(),0)
+  assert.equal(h.work.stalledPasses,0);assert.equal(h.agent.treeJobs.size,1)
+  h.work.nextDirtAttemptAt=Date.now()+60000
+  h.work.pause=async ms=>assert.ok(ms>59000 && ms<=60000)
+  await h.work.waitOutFailure(failure)
 })

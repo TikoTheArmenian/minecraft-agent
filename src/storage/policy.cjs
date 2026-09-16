@@ -51,7 +51,7 @@ function category(item, registry) {
   )
     return 'tools'
   if (/_(log|wood|planks|sapling)$/.test(name) || ['stick', 'bamboo'].includes(name)) return 'wood'
-  if (/seeds|wheat|carrot|potato|bread|apple|melon|beetroot|cooked_|berries/.test(name))
+  if (/seeds|wheat|carrot|potato|bread|apple|melon|pumpkin|beetroot|cooked_|berries/.test(name))
     return 'food'
   if (
     /ingot|nugget|diamond|emerald|coal|charcoal|redstone|lapis|raw_|^(sugar_cane|sugar|paper|flint|gunpowder|string|bone|rotten_flesh|spider_eye|arrow|ender_pearl|slime_ball|phantom_membrane|quartz)$/.test(

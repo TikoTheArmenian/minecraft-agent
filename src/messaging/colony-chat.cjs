@@ -66,6 +66,7 @@ class ColonyChat {
     this.busy = false
     this.pending = new Map()
     this.storageUpdates = new StorageUpdates(this)
+    this.armor = new (require('./armor-coordination.cjs').ArmorCoordination)(this)
   }
   scope() {
     return JSON.stringify([this.agent.state.world, this.agent.state.dimension])
@@ -180,6 +181,7 @@ class ColonyChat {
         this.enqueue(name, replies, channel)
         return true
       }
+      if (this.armor.receive(name, text)) return true
       if (this.storageUpdates.receive(name, text, channel)) return true
       if (/^(Get tools at |Requested supplies: )/.test(text)) {
         this.agent.log('colony.chat', `${name}: ${text}`)
@@ -356,7 +358,11 @@ class ColonyChat {
       this.busy = false
     }
   }
+  async armorReady(w, hub) {
+    if (this.coordinator()) await this.armor.notify(w, hub)
+  }
   async returnSupplies(w) {
+    await this.armor.collect(w)
     const memory = this.recall(),
       policy = memory.storage
     if (Date.now() < (memory.nextSupplyAttemptAt || 0)) return

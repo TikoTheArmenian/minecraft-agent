@@ -187,6 +187,10 @@ class StorageCrafting extends Work {
           if (continuous) {
             const job = await db('claim_job')
             if (job) await this.boundary('crafted', () => crafting.execute(this, job))
+            else if (hub)
+              await this.boundary('idle-golem', () =>
+                require('../storage/iron-golem.cjs').build(this, hub),
+              )
             this.progress('Storage checked. Waiting 20 seconds for supplies or crafting jobs.')
             for (let waited = 0; waited < 20000; waited += 1000) {
               await this.pause(1000)

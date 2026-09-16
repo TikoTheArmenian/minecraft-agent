@@ -13,6 +13,9 @@ Work and SkillRunner.
 | MobKiller | `src/skills/mob-killer.cjs`: adapter-backed strikes, replacement of unusable weapons, server-death evidence for kill counts. |
 | Collection | `src/capabilities/block-collection.cjs`: subclass of the published `CollectBlock`, with a Work-owned executor replacing upstream `collect()` and `cancelTask()`. |
 | OreFinder | `src/skills/ore-finder.cjs`: nearest-target collection in batches of up to 32 attempted eligible blocks, then rescan. |
+| Eating | `src/minecraft/auto-eat.cjs`: auto-eat's ESM controller through a task-scoped bot view, with bounded confirmation and item restoration. |
+| Armor | `src/minecraft/armor.cjs`: armor-manager classification, conservative upgrade selection, and verified equipment changes at resource checkpoints. |
+| Tools | `src/minecraft/tools.cjs`: mineflayer-tool subclass retaining harvest predicates, modern enchantments, and shared-storage policy. |
 
 These are selective integrations. We do not load the stock background PVP
 controller or the stock collection executor. Existing pursuit already supports
@@ -30,6 +33,9 @@ Pinned versions:
 
 - `mineflayer-pvp`: `1.3.2`
 - `mineflayer-collectblock`: `1.6.0`
+- `mineflayer-auto-eat`: `5.0.3`
+- `mineflayer-armor-manager`: `2.0.1`
+- `mineflayer-tool`: `1.2.0` (now a direct dependency)
 - Existing Mineflayer `4.39.0` and pathfinder `2.4.5` remain unchanged.
 
 PVP depends on `mineflayer-utils@0.1.4`, which declares an old Mineflayer 2.x
@@ -110,6 +116,50 @@ liquid, support and tool restrictions before passing discovered blocks to collec
 
 ## Tests and validation
 
+### Eating, armor and tools
+
+`ResourceWork.eat()` now maintains armor and invokes auto-eat at existing safe
+checkpoints. This covers the survival workflow, resource gathering, farmers,
+OreFinder, terraformer's work loop and MobKiller. It does not start an independent
+idle-bot timer. Jobs extending bare `Work` can call the armor helper explicitly at
+a safe boundary; their existing behavior is otherwise unchanged. All digging
+through `Work.dig()` uses the tool adapter.
+
+Auto-eat loads its pinned ESM `EatUtil` class with dynamic import. The real
+controller selects food, equips it and initiates use through a Work-scoped bot
+view. It retains the existing allowed-food list, hunger threshold (16), limit of
+four meals per checkpoint and four-item carrot/potato/beetroot planting reserves.
+Food priority is now highest food points among eligible carried items. Open
+windows and cursor items defer eating and armor maintenance.
+
+The consumption observer is registered before item use and requires both the
+server's consumption acknowledgement and increased hunger, in either packet
+order. Work bounds the operation to seven seconds. Stop releases use and removes
+the observers immediately, without leaving an unresolved `bot.consume()` promise.
+Restoring the previously held item is awaited and skipped for obsolete/cancelled
+tasks. The upstream automatic tick loop, timeout observer and unawaited restoration
+are not used. The utility plugin bundled as a transitive dependency is not loaded.
+
+Armor-manager's slot classification is reused, with corrected iron/chainmail
+ranking and conservative replacement rules. Upgrades must preserve every carried
+enchantment on the equipped piece; worn or cursed candidates are excluded. Elytra,
+equipped cursed armor and manually occupied offhands stay in place. Turtle helmets
+may be replaced by a better copy of the same helmet. An empty offhand can receive a
+carried shield. Equipment is checked against actual inventory slots after each
+bounded operation. No delayed `playerCollect` equipment callback is installed.
+
+The tool adapter extends the published `Tool` class and uses its redundant-equip
+check. Mining-time comparisons normalize 1.21 enchantment components and ore
+material tags. Harvest eligibility, durability, creative-mode restrictions,
+caller predicates such as no Silk Touch, and existing tie-breaks are preserved.
+The adapter verifies the selected tool in hand; automatic chest retrieval remains
+disabled in favor of the existing shared-storage routines.
+
+`test/equipment-plugins.test.cjs` exercises the actual EatUtil controller and Tool
+class, server acknowledgement ordering, safe restoration, Stop during equip/use,
+planting reserves, armor protection and equipment verification. Run it with the
+existing item-tool, survival and work tests when modifying these adapters.
+
 New adapter tests cover real published-library queue/vein behavior, cooldown tick
 counts, stalled ticks, delayed aiming, shield cancellation, exclusive ownership,
 changed targets, bounded batches, cancellation settlement and handoffs. Skill tests
@@ -136,6 +186,9 @@ not establish globally optimal routes or a measured improvement over `nearbyFirs
 - [Collectblock project](https://github.com/PrismarineJS/mineflayer-collectblock)
 - [Collection executor](https://github.com/PrismarineJS/mineflayer-collectblock/blob/master/src/CollectBlock.ts)
 - [Vein traversal](https://github.com/PrismarineJS/mineflayer-collectblock/blob/master/src/BlockVeins.ts)
+- [Auto-eat](https://github.com/linkle69/mineflayer-auto-eat)
+- [Armor manager](https://github.com/PrismarineJS/MineflayerArmorManager)
+- [Tool plugin](https://github.com/PrismarineJS/mineflayer-tool)
 
 Implementation was checked against the pinned npm archives, not just the moving
 GitHub default branches.

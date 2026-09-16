@@ -8,6 +8,8 @@ const { watchBlock } = require('../minecraft/block-updates.cjs')
 const { placeBlockWithOptions, genericPlace } = require('../minecraft/actions.cjs')
 const { surroundings, isAir, HOSTILES } = require('../world/observations.cjs')
 const { enchantments } = require('../minecraft/item-tools.cjs')
+const { eatAtCheckpoint } = require('../minecraft/auto-eat.cjs')
+const { equipArmor } = require('../minecraft/armor.cjs')
 const cropExpansion = require('./crop-expansion.cjs')
 
 const LOG = /^(?!stripped_).*_log$/
@@ -124,19 +126,10 @@ class ResourceWork extends Work {
       : null
   }
   async eat() {
-    if (!Number.isFinite(this.bot.food) || this.bot.food > 16) return
-    for (let n = 0; n < 4 && this.bot.food <= 16; n++) {
-      const name = FOOD.find(
-        (name) => this.count(name) > (['carrot', 'potato', 'beetroot'].includes(name) ? 4 : 0),
-      )
-      if (!name) return
-      this.decide(`Hunger ${this.bot.food}/20: eating ${name.replaceAll('_', ' ')}.`)
-      await this.equip(this.item(name))
-      const before = this.bot.food
-      await this.timed(() => this.bot.consume(), 7000, `Eat ${name}`)
-      if (this.bot.food <= before) throw blocked('Eating was not confirmed by the server.')
-      this.agent.refresh()
-    }
+    await equipArmor(this)
+    return eatAtCheckpoint(this, FOOD, (name) =>
+      ['carrot', 'potato', 'beetroot'].includes(name) ? 4 : 0,
+    )
   }
   safeTarget(block) {
     if (!block || !block.diggable || block.hardness < 0) return false

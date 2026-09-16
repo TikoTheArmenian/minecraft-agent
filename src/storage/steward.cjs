@@ -367,10 +367,39 @@ async function armor(w, hub) {
     w.progress('Armor waits until the shared tool buffer is stocked.')
     return
   }
+  const { equipArmor, needsIron } = require('../minecraft/armor.cjs')
+  await equipArmor(w)
+  // Wear useful armor before creating any stock for peers.
+  for (const name of ARMOR_STOCK) {
+    if (!needsIron(w.bot, name)) continue
+    await storage.retrieve(w, [name], 1)
+    await equipArmor(w)
+    if (!needsIron(w.bot, name)) continue
+    const stock = crafting.stocks(w, await storage.list(w))
+    try {
+      crafting.planRecipes(w.bot, name, 1, stock.carry, stock.shared)
+    } catch {
+      continue
+    }
+    const job = randomUUID()
+    await storage.call(w, 'enqueue', { job, item: name, quantity: 1 })
+    const claimed = await storage.call(w, 'claim_job', { job })
+    if (claimed) {
+      await crafting.execute(w, claimed, { storeOutput: false })
+      await equipArmor(w)
+    }
+  }
+  if (ARMOR_STOCK.some((name) => needsIron(w.bot, name))) return
   for (const name of ARMOR_STOCK) {
     const item = w.bot.inventory.items().find((i) => i.name === name && plain(i))
     if (item) await storage.store(w, { fingerprint: describe(item).fingerprint, count: item.count })
-    if (count(name) >= 4) continue
+    const fresh = await storage.list(w)
+    const sharedCount = fresh.containers
+      .filter((c) => c.managed && atHub(c, hub))
+      .flatMap((c) => c.slots)
+      .filter((i) => i.name === name && plain(i))
+      .reduce((n, i) => n + i.count, 0)
+    if (sharedCount >= 4) continue
     const stock = crafting.stocks(w, await storage.list(w))
     // Make one piece at a time; partial material supply can still produce useful armor.
     try {
@@ -379,7 +408,7 @@ async function armor(w, hub) {
       continue
     }
     if (
-      !data.containers.some(
+      !fresh.containers.some(
         (c) =>
           c.managed &&
           atHub(c, hub) &&
@@ -387,12 +416,13 @@ async function armor(w, hub) {
           c.slots.length < c.capacity,
       )
     )
-      return
+      break
     const job = randomUUID()
     await storage.call(w, 'enqueue', { job, item: name, quantity: 1 })
     const claimed = await storage.call(w, 'claim_job', { job })
     if (claimed) await crafting.execute(w, claimed)
   }
+  await w.agent.coordination?.armorReady(w, hub)
 }
 module.exports = {
   armor,

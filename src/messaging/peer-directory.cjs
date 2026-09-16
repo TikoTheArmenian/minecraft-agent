@@ -50,6 +50,16 @@ class PeerDirectory {
           profession:
             peer.profile?.preferredProfession || peer.profile?.profession || 'general worker',
           busy: Boolean(peer.workActive),
+          health: peer.bot.health,
+          task: peer.state.task?.skill || null,
+          armorNeeds: Object.freeze(
+            Object.keys(require('../minecraft/armor.cjs').IRON_SLOTS).filter(
+              (name) =>
+                peer.bot.registry?.itemsByName &&
+                peer.bot.inventory?.slots &&
+                require('../minecraft/armor.cjs').needsIron(peer.bot, name),
+            ),
+          ),
         }),
       )
   }

@@ -290,3 +290,16 @@ test('working needs follow the active skill while remembered profession remains 
   assert.match(needs, /wheat_seeds/)
   assert.doesNotMatch(needs, /iron_axe/)
 })
+
+test('armor offers require the coordinator, persist and remain scoped to their world', t => {
+  const { sam, marc } = pair(t)
+  const text = 'Marc: Armor waiting at 0 64 0: iron_helmet,iron_boots.'
+  assert.equal(marc.coordination.receive(marc.bot, 'Jerry', text), false)
+  assert.equal(marc.coordination.receive(marc.bot, sam.username, text), true)
+  assert.equal(marc.coordination.receive(marc.bot, sam.username, text), true)
+  const restored = new ColonyChat(marc)
+  assert.equal(restored.recall().priorityStack.length, 1)
+  assert.deepEqual(restored.recall().priorityStack[0].items, ['iron_helmet','iron_boots'])
+  marc.state.dimension = 'nether'
+  assert.equal(restored.recall().priorityStack, undefined)
+})

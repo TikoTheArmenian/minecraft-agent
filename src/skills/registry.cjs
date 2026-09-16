@@ -126,6 +126,44 @@ const skills = [
     ready: 'Ready to harvest and expand sugar cane.',
   },
   {
+    type: 'pumpkinFarm',
+    label: 'Pumpkin farmer',
+    aliases: [
+      'farm pumpkins',
+      'pumpkin farmer',
+      'start pumpkin farmer',
+      'pumpkin farm',
+      'start pumpkin farm',
+    ],
+    module: './pumpkin-farm.cjs',
+    className: 'PumpkinFarm',
+    taskSkill: 'PUMPKIN FARMER',
+    description:
+      'Harvests pumpkins while preserving stems, plants irrigated plots with room for fruit, and stores surplus.',
+    limits:
+      'Continuous farming within 80 blocks of start. Needs seeds or produce, nearby water and a hoe for untilled soil. Stop cancels.',
+    ready: 'Ready to grow and harvest pumpkins.',
+  },
+  {
+    type: 'melonFarm',
+    label: 'Melon farmer',
+    aliases: [
+      'farm melons',
+      'melon farmer',
+      'start melon farmer',
+      'melon farm',
+      'start melon farm',
+    ],
+    module: './melon-farm.cjs',
+    className: 'MelonFarm',
+    taskSkill: 'MELON FARMER',
+    description:
+      'Harvests melons while preserving stems, plants irrigated plots with room for fruit, and stores surplus.',
+    limits:
+      'Continuous farming within 80 blocks of start. Needs seeds or produce, nearby water and a hoe for untilled soil. Stop cancels.',
+    ready: 'Ready to grow and harvest melons.',
+  },
+  {
     type: 'mobKiller',
     label: 'Mob killer',
     aliases: ['hunt mobs', 'mob killer', 'start mob killer', 'kill mobs'],

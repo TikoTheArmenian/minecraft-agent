@@ -116,7 +116,10 @@ class ResponsesDecisionProvider {
   available() {
     return this.transport.available()
   }
-  async decide(snapshot, { schema, model, maxOutputTokens, signal, agent }) {
+  async decide(
+    snapshot,
+    { schema, model, maxOutputTokens, signal, agent, instructions = INSTRUCTIONS },
+  ) {
     const costs = agent && require('../infra/api-costs.cjs').costsFor(agent)
     const costId = costs?.begin({
       agent: agent.username,
@@ -131,7 +134,7 @@ class ResponsesDecisionProvider {
           model,
           store: false,
           max_output_tokens: maxOutputTokens,
-          instructions: INSTRUCTIONS,
+          instructions,
           input: [{ role: 'user', content: JSON.stringify(snapshot) }],
           text: {
             format: {

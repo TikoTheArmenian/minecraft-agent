@@ -112,7 +112,9 @@ test('empty farmland is planted with supplied stock',async()=>{
 })
 test('crop changed to immature during equip is not harvested',async()=>{
   const f=fixture(),p=new Vec3(2,64,0);f.set('wheat',p,7)
-  f.bot.unequip=async()=>f.set('wheat',p,0)
+  // Start with an item in hand so the tool adapter needs a real equipment change.
+  f.bot.heldItem={name:'stone',type:registry.itemsByName.stone.id,count:1}
+  f.bot.unequip=async()=>{f.bot.heldItem=null;f.set('wheat',p,0)}
   await assert.rejects(f.work.dig(p,'wheat',b=>mature(b,CROPS.wheat)),/changed/)
   assert.equal(f.dug.length,0)
 })

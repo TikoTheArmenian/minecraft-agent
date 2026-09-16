@@ -1,6 +1,6 @@
 /**
  * TOOL COMPATIBILITY: translates item/enchantment information used to compare equipment.
- * The actual best-tool selection lives in work.cjs; this module makes the data usable.
+ * Best-tool selection lives in tools.cjs; this module makes the data usable.
  */
 
 const serverEnchantments = new WeakMap()

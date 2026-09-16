@@ -72,6 +72,24 @@ function temporary(t) {
   return dir
 }
 
+test('shared supply retrieval retains the real Work owner and skips trips above its threshold', async (t) => {
+  const h = fixture(), work = new ResourceWork(h.agent, 1)
+  h.agent.colony = { enabled: true }
+  let calls = 0
+  t.mock.method(require('../src/storage/service.cjs'), 'retrieve', async (owner, names, target) => {
+    calls++
+    assert.equal(owner, work)
+    assert.equal(owner.cancelled(), false)
+    assert.equal(owner.controller, work.controller)
+    assert.deepEqual(names, ['dirt'])
+    assert.equal(target, 128)
+    h.add('dirt', 8)
+  })
+  await restockLocal(work, ['dirt'], 128, 8, 'building blocks')
+  await restockLocal(work, ['dirt'], 128, 8, 'building blocks')
+  assert.equal(calls, 1)
+})
+
 test('corrupt or unsupported tree and terrain jobs are preserved and refuse restart', (t) => {
   for (const [Skill, filename] of [[TreeFarm, 'tree-jobs.json'], [Terraformer, 'terraform-jobs.json']]) {
     const dir = temporary(t)
@@ -90,7 +108,7 @@ test('valid legacy jobs remain resumable and upgrade to versioned checkpoints on
   const cases = [
     [TreeFarm, 'tree-jobs.json', {
       species: 'oak', logs: [{ x: 0, y: 64, z: 0 }], roots: [{ x: 0, y: 64, z: 0 }],
-      planted: [], removed: 0, scaffolds: [],
+      planted: [], removed: 0, scaffolds: [{ x: 1, y: 64, z: 0, name: 'oak_planks' }],
     }],
     [Terraformer, 'terraform-jobs.json', {
       area: { min: { x: 0, z: 0 }, max: { x: 1, z: 1 }, y: 63 },

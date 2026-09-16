@@ -255,6 +255,8 @@ class Agent extends EventEmitter {
       'treeFarm',
       'oreFinder',
       'sugarcaneFarm',
+      'pumpkinFarm',
+      'melonFarm',
       'mobKiller',
       'terraformer',
       'smelter',

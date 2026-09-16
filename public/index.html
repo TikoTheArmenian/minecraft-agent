@@ -11,6 +11,7 @@
     <script src="/world.js" defer></script>
     <script src="/dist/map-viewer.js" defer></script>
     <script src="/activity.js" defer></script>
+    <script src="/decisions.js" defer></script>
     <script src="/storage.js" defer></script>
     <script src="/costs.js" defer></script>
     <script src="/supervisor.js" defer></script>
@@ -90,6 +91,15 @@
                     run <code>npm run logs</code> in the project folder. Saved file: <code
                         id="log-file">data/logs/activity.log</code> (rotates at 2 MB).</p>
             </details>
+        </section>
+        <section class="panel decision-panel" aria-labelledby="decision-heading">
+            <div class="section-title"><div><p class="eyebrow">LIVE DECISION FLOW</p><h2 id="decision-heading" data-bot-label="{bot} · decisions">Bot decisions</h2></div><span id="decision-live" role="status">Waiting for updates</span></div>
+            <p id="decision-goal" class="muted">No objective set.</p>
+            <ol class="decision-flow" aria-label="Decision, current work, and next move">
+                <li class="decision-node"><span class="decision-stage">01 · Latest decision</span><span id="decision-last-tag" class="decision-tag">No decision</span><h3 id="decision-last-title">Waiting for a decision</h3><p id="decision-last-detail">Supervisor decisions will appear here.</p><small id="decision-last-meta"></small></li>
+                <li class="decision-node decision-current"><span class="decision-stage">02 · Working on</span><span id="decision-current-tag" class="decision-tag">Idle</span><h3 id="decision-current-title">No active task</h3><p id="decision-current-detail">Choose a skill to begin.</p><small id="decision-current-meta"></small></li>
+                <li class="decision-node decision-next"><span class="decision-stage">03 · Up next</span><span id="decision-next-tag" class="decision-tag">Undecided</span><h3 id="decision-next-title">No next move selected</h3><p id="decision-next-detail">Queued work and planned steps will appear here.</p><small id="decision-next-meta"></small></li>
+            </ol>
         </section>
         <section class="panel supervisor-panel" aria-labelledby="supervisor-heading">
             <div class="section-title">

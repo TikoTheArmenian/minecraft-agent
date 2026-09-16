@@ -9,7 +9,7 @@ const { watchBlock } = require('../minecraft/block-updates.cjs')
 const { placeBlockWithOptions } = require('../minecraft/actions.cjs')
 const { closeBot } = require('../minecraft/connection.cjs')
 const { setTimeout: sleep } = require('node:timers/promises')
-const { enchantments, comparisonBlock } = require('../minecraft/item-tools.cjs')
+const { TaskTool, chooseTool } = require('../minecraft/tools.cjs')
 const { Travel, TravelMovements } = require('../navigation/travel.cjs')
 const { PickupGoal } = require('../navigation/pickup-goal.cjs')
 const { BlockApproachGoal, canView, workingCell } = require('../navigation/block-approach.cjs')
@@ -69,56 +69,6 @@ function blockName(bot, name) {
 }
 function mature(block, crop) {
   return block?.name === crop.block && Number(block.getProperties().age) === crop.age
-}
-// Filter for harvest capability before comparing speed, so e.g. a gold pickaxe is
-// not chosen for ore requiring a higher tier. Include bare hands where appropriate.
-function chooseTool(bot, block, accepts = () => true) {
-  const creative = bot.game.gameMode === 'creative'
-  const options = [null, ...bot.inventory.items()].filter((item) => {
-    if (!accepts(item)) return false
-    if (creative && item && /sword|trident/.test(item.name)) return false
-    const max = item && bot.registry.items[item.type]?.maxDurability
-    if (max && item.durabilityUsed >= max - 1) return false
-    return creative || block.canHarvest(item?.type ?? null)
-  })
-  if (!options.length)
-    throw new Error(
-      `Need a suitable tool to harvest ${block.name}. Give ${bot.username || 'the bot'} a tool.`,
-    )
-  const target = comparisonBlock(bot, block)
-  // Compare normal mining speeds even in Creative: its instant-dig times would
-  // otherwise tie every item with empty hands. Enchantments remain part of speed.
-  const time = (item) =>
-    target.digTime(
-      item?.type ?? null,
-      false,
-      false,
-      false,
-      enchantments(item, bot),
-      bot.entity.effects,
-    )
-  const bareTime = time(null),
-    tiers = { wooden: 1, golden: 2, stone: 3, iron: 4, diamond: 5, netherite: 6 }
-  const hotbarStart = bot.QUICK_BAR_START ?? 36
-  return options
-    .map((item) => {
-      const duration = time(item),
-        useful = item && (block.harvestTools?.[item.type] || duration < bareTime)
-      return {
-        item,
-        duration,
-        tier: useful ? tiers[item.name.split('_')[0]] || 0 : 0,
-        hotbar: item?.slot >= hotbarStart && item.slot < hotbarStart + 9,
-      }
-    })
-    .sort(
-      (a, b) =>
-        a.duration - b.duration ||
-        b.tier - a.tier ||
-        Number(!!a.item) - Number(!!b.item) ||
-        Number(b.hotbar) - Number(a.hotbar) ||
-        (a.item?.durabilityUsed || 0) - (b.item?.durabilityUsed || 0),
-    )[0].item
 }
 
 class Work {
@@ -434,8 +384,8 @@ class Work {
     const feet = this.bot.entity.position.floored()
     if (pos.x === feet.x && pos.z === feet.z && pos.y === feet.y - 1 && !safeDescent())
       throw new Error('Standing on this block; move aside before mining it.')
-    const item = chooseTool(this.bot, block, acceptsTool)
-    await this.equip(item)
+    this.tools ||= new TaskTool(this.bot)
+    await this.tools.equipForBlock(block, { work: this, accepts: acceptsTool })
     block = this.bot.blockAt(pos)
     if (!block || block.name !== expected || !predicate(block))
       throw new Error('Target changed while equipping.')

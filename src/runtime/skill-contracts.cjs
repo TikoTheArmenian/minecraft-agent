@@ -94,6 +94,20 @@ const contracts = {
     tools: ['iron_shovel'],
     supplies: { sugar_cane: 8 },
   },
+  pumpkinFarm: {
+    parameters: empty,
+    profession: 'pumpkin farmer',
+    execution: 'continuous',
+    tools: ['iron_hoe', 'iron_axe'],
+    supplies: { pumpkin_seeds: 8 },
+  },
+  melonFarm: {
+    parameters: empty,
+    profession: 'melon farmer',
+    execution: 'continuous',
+    tools: ['iron_hoe', 'iron_axe'],
+    supplies: { melon_seeds: 8 },
+  },
   mobKiller: {
     parameters: object({ radius: { ...integer(8, 48), default: 24 } }),
     profession: 'mob killer',

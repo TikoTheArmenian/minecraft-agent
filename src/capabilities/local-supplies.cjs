@@ -4,6 +4,16 @@
 const { restock } = require('../storage/farm-storage.cjs')
 
 async function restockLocal(w, names, target, threshold, label) {
+  if (w.agent.colony?.enabled) {
+    const carried = w.bot.inventory
+      .items()
+      .filter((item) => names.includes(item.name))
+      .reduce((sum, item) => sum + item.count, 0)
+    if (carried >= threshold) return
+    // Shared storage needs the real Work owner for cancellation, operation
+    // journaling and recovery. The local chest adapter is not a Work instance.
+    return require('../storage/service.cjs').retrieve(w, names, target)
+  }
   const state = (w.localSupplyState ||= { plan: {}, checks: new Map() })
   const context = {
     agent: w.agent,

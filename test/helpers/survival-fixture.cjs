@@ -30,6 +30,7 @@ function fixture() {
     },
     _genericPlace:async soil=>{tilled.push(soil.position);const b=set('farmland',soil.position);bot._client.emit('block_change',{location:soil.position,type:b.stateId})},
     _placeBlockWithOptions:async soil=>{const crop=Object.values(CROPS).find(c=>c.seed===bot.heldItem.name);const name=crop?.block||bot.heldItem.name;const b=set(name,soil.position.offset(0,1,0),crop?0:undefined);placed.push(name);bot.heldItem.count--;bot._client.emit('block_change',{location:b.position,type:b.stateId})},
+    activateItem:()=>{bot.heldItem.count--;bot.food=Math.min(20,bot.food+5);bot._client.emit('entity_status',{entityId:bot.entity.id,entityStatus:9});bot._client.emit('update_health',{food:bot.food})},
     consume:async()=>{bot.heldItem.count--;bot.food=Math.min(20,bot.food+5)}
   })
   const agent={bot,epoch:1,nav:1,baseMovements:{},state:{connection:'ready',task:{status:'running'},messages:[]},publish(){},refresh(){},say(text){this.state.messages.push(text)},command(text){commands.push(parse(text))},disconnect(){this.nav++;this.bot=null;this.state.connection='disconnected'}}

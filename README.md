@@ -136,6 +136,8 @@ Skills need **Survival mode** and a connected bot. Start them from the skill sel
 | **FARMER** | Continuous wheat: harvest, replant, expand irrigated plots, light the area, and store surplus in chests. Runs until Stop. |
 | **Tree farmer** | Starts near a mature tree without starter supplies. Retrieves or crafts an axe and shovel, gathers dirt for access, and cuts whole trees (oak, birch, spruce, jungle, acacia, dark oak, cherry). Collects saplings after cutting, restores missing planting dirt, and saves unfinished planting while harvesting other trees. Tree work survives Stop and restart. |
 | **Get torches** | Crafts 16 torches from coal, charcoal, or a furnace run. FARMER also stocks and places a few lights on its own. |
+| **Pumpkin farmer** | Runs `farm pumpkins`: harvests pumpkins beside matching stems, preserves stems, plants irrigated plots with clear fruit lanes, and stores surplus. |
+| **Melon farmer** | Runs `farm melons`: harvests melons beside matching stems, preserves stems, makes seeds from slices, and plants irrigated plots with clear fruit lanes. |
 | **Sugarcane farmer** | Harvests grown cane above the base, replants along water, expands the patch, and stores surplus. |
 | **Ore finder** | Scans loaded terrain for exposed ore, mines reachable veins, and stores raw ore. Does not tunnel or dig straight down. |
 | **Terraformer** | Levels a bounded rectangle: cuts above the target height, fills below. Select on the map or `flatten x1 z1 to x2 z2 at y`. Stop keeps the job so a later start resumes. |
@@ -213,6 +215,8 @@ Use Minecraft item IDs with underscores. Quantities are 1–64 each way. Both bo
 | Command | Result |
 | --- | --- |
 | `find ores` / `find ores iron within 48` | Ore finder (coal, iron, copper, gold, redstone, lapis, diamond, emerald) |
+| `farm pumpkins` | Continuous pumpkin farming (separate skill) |
+| `farm melons` | Continuous melon farming (separate skill) |
 | `farm sugarcane` | Continuous sugar cane |
 | `hunt mobs` / `hunt mobs within 16` | Guard from the start post (radius 8–48) |
 | `flatten 10 20 to 25 40 at 64` | Level that rectangle to Y=64 |
@@ -390,3 +394,17 @@ Choose a connected bot, then use **Follow** to select that bot or a nearby loade
 Pink lines show the selected bot's actual pathfinder waypoints, clipped to the volume and visible through terrain. Paths clear on stop, completion, reset, teleport, or world changes. Unknown chunks remain empty and are counted below the viewer. Block collision shapes preserve slabs and stairs. Blocks use face textures extracted from the installed Minecraft 1.21.1 client, with pixel-sharp filtering and default biome tints. Water spans the full block footprint; farmland is 15/16 of a block tall. Grass, torches, wheat and other crops use two upright crossed texture planes with no top face. Other plants and fluids use simplified shapes, and animated textures currently show their first frame. The expandable **Top-down map · movement and mining** retains the existing action controls.
 
 `npm run web` and `npm start` build the local browser bundle automatically. After editing `public/map-viewer.mjs`, run `npm run build:web` and refresh the browser; restart the web server for backend changes. If launching `node src/main.cjs` directly, build first.
+
+### Idle storage guardian
+
+After storage maintenance, when no crafting job is waiting, the storage coordinator can
+build one iron golem per hub from surplus supplies. It requires four of every shared
+iron tool and armor piece, its own armor equipped, a carved pumpkin or jack o’lantern,
+and enough iron to leave 64 ingots untouched after making the four iron blocks.
+Existing iron blocks count toward the build. A plain pumpkin must be carved first.
+
+The coordinator chooses a clear site outside the warehouse, places the head last, and
+confirms the golem entity appeared. Nearby golems suppress construction. Partial builds
+are saved for resumption; an uncertain spawn is retained for inspection rather than
+spending another set of materials. The completed guardian record prevents repeated
+construction at the same hub, including after a restart.

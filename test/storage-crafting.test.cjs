@@ -44,3 +44,18 @@ test('crafting finishes the claimed job before a cooperative handoff', async t =
   assert.equal(h.work.task.checkpoint.data.phase, 'crafted')
   assert.equal(h.work.task.checkpoint.data.counts.crafted, 3)
 })
+
+for (const queued of [true,false]) test(`idle golem runs only after an empty crafting queue (${queued})`, async t => {
+  const h=setup(), steward=require('../src/storage/steward.cjs'), golem=require('../src/storage/iron-golem.cjs')
+  t.mock.method(require('../src/capabilities/building-supplies.cjs'),'ensure',async()=>{})
+  for(const method of ['scan','store']) t.mock.method(storage,method,async()=>{})
+  for(const method of ['expand','label','tools','armor','consolidate']) t.mock.method(steward,method,async()=>false)
+  t.mock.method(storage,'call',async(_,action)=>action==='hub_get'?{position:{x:0,y:64,z:0}}:queued?{id:'queued-job'}:null)
+  let crafts=0,golems=0
+  t.mock.method(crafting,'execute',async()=>{crafts++})
+  t.mock.method(golem,'build',async()=>{golems++})
+  h.work.pause=async()=>{throw Object.assign(new Error('test stop'),{code:'CANCELLED'})}
+  await h.work.run({action:'maintain'})
+  assert.equal(crafts,queued?1:0)
+  assert.equal(golems,queued?0:1)
+})

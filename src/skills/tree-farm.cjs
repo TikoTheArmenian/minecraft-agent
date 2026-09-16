@@ -34,6 +34,14 @@ const { placeBlockWithOptions } = require('../minecraft/actions.cjs')
 
 /** Tree species this skill knows how to harvest and replant. */
 const SPECIES = ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry']
+const CANOPY_MATERIALS = [...BUILDING_BLOCKS, ...SPECIES.map((species) => `${species}_planks`)]
+const waitingForAccess = () =>
+  Object.assign(
+    new Error(
+      'No building blocks available for the remaining tree. Rechecking storage, safe gathering and harvested wood.',
+    ),
+    { code: 'WAITING_FOR_TREE_ACCESS' },
+  )
 
 /** Blocks a log may stand on for the tree to count as "rooted" (and for a sapling to grow). */
 const SOIL = new Set([
@@ -136,12 +144,12 @@ function watchForBlockType(bot, pos, blockType, signal) {
   return watchBlock(bot, pos, matches, signal)
 }
 
-/** Building material for canopy steps: dirt first, then any other building block. */
+/** Dirt first, then carried stone, then planks that can be recovered after climbing. */
 function pickCanopyMaterial(bot) {
   return bot.inventory
     .items()
-    .filter((item) => BUILDING_BLOCKS.includes(item.name) && item.count > 0)
-    .sort((a, b) => Number(b.name === 'dirt') - Number(a.name === 'dirt'))[0]
+    .filter((item) => CANOPY_MATERIALS.includes(item.name) && item.count > 0)
+    .sort((a, b) => CANOPY_MATERIALS.indexOf(a.name) - CANOPY_MATERIALS.indexOf(b.name))[0]
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +200,7 @@ function isSavedTreeJob(job) {
     job.scaffolds === undefined ||
     (Array.isArray(job.scaffolds) &&
       job.scaffolds.length <= MAX_SAVED_SCAFFOLDS &&
-      job.scaffolds.every((entry) => isSavedPoint(entry) && BUILDING_BLOCKS.includes(entry.name)))
+      job.scaffolds.every((entry) => isSavedPoint(entry) && CANOPY_MATERIALS.includes(entry.name)))
   return scaffoldsValid
 }
 
@@ -384,7 +392,7 @@ class TreeFarm extends ResourceWork {
       (n, [, job]) => n + job.roots.length - job.planted.length,
       0,
     )
-    this.reserves = {}
+    this.reserves = Object.fromEntries(SPECIES.map((species) => [`${species}_planks`, 64]))
     for (const [key, job] of this.agent.treeJobs) {
       if (key !== this.jobKey && !key.startsWith(`${this.jobKey}:replant:`)) continue
       const name = saplingName(job.species)
@@ -622,7 +630,7 @@ class TreeFarm extends ResourceWork {
     const faceCenter = blockCenter(referencePos).plus(face.scaled(0.5))
 
     const material = pickCanopyMaterial(this.bot)
-    if (!material) throw new Error('Need dirt or cobblestone to build the next canopy step.')
+    if (!material) throw waitingForAccess()
 
     // Re-validated right before placing, because the world can change while we equip and turn.
     const assertStillPlaceable = () => {
@@ -684,7 +692,7 @@ class TreeFarm extends ResourceWork {
   }
 
   /**
-   * Climb straight up a cleared trunk column by jumping and placing dirt under our
+   * Climb straight up a cleared trunk column by jumping and placing blocks under our
    * own feet. Only applies when the log at `pos` sits above a root whose column has
    * already been cleared. Returns false when this route does not apply, true once
    * `pos` is workable.
@@ -693,7 +701,7 @@ class TreeFarm extends ResourceWork {
     const root = this.job.roots.find((r) => sameColumn(r, pos))
     // Branches and old, partly cut jobs can still use the supported stair route.
     const feet = this.bot.entity.position.floored()
-    if (!root) return false
+    if (!root || !pickCanopyMaterial(this.bot)) return false
 
     if (!sameColumn(feet, root)) {
       const columnCleared =
@@ -715,20 +723,21 @@ class TreeFarm extends ResourceWork {
       )
       await this.clearCanopyLeaves(blockedAbove)
 
-      const dirt = this.bot.inventory.items().find((i) => i.name === 'dirt' && i.count > 0)
-      if (!dirt) {
-        const who = this.agent.username || this.bot.username || 'the bot'
-        throw new Error(`Dirt column exhausted; descend and refill ${who}’s dirt reserve.`)
-      }
-      await this.equip(dirt)
+      const material = pickCanopyMaterial(this.bot)
+      // Existing terrain may still provide a route from this height. Let the
+      // normal canopy route try before treating missing materials as a blocker.
+      if (!material) return false
+      await this.equip(material)
       await this.timed(
         () => this.bot.lookAt(here.offset(0.5, 0, 0.5)),
         5000,
-        'Face the dirt column',
+        'Face the climbing column',
       )
-      this.decide(`Climbing the cleared trunk with dirt · ${this.plan.remaining} logs left.`)
+      this.decide(
+        `Climbing the cleared trunk with ${material.name.replaceAll('_', ' ')} · ${this.plan.remaining} logs left.`,
+      )
 
-      // Jump, then place dirt on top of the block we were just standing on.
+      // Jump, then place a support on the block we were just standing on.
       this.bot.setControlState('jump', true)
       try {
         await this.motionUntil(
@@ -743,7 +752,7 @@ class TreeFarm extends ResourceWork {
         () =>
           this.bot.entity.onGround &&
           this.bot.entity.position.floored().equals(here.offset(0, 1, 0)),
-        'Land on confirmed dirt',
+        'Land on confirmed climbing support',
       )
     }
     throw new Error('Trunk climb limit reached; unfinished tree saved.')
@@ -774,7 +783,7 @@ class TreeFarm extends ResourceWork {
    */
   async recoverScaffolds() {
     const scaffolds = (this.job.scaffolds ||= [])
-    if (scaffolds.length) await this.descendCanopy()
+    await this.descendCanopy()
     if (scaffolds.length) await this.leaveWater()
 
     while (scaffolds.length) {
@@ -828,15 +837,31 @@ class TreeFarm extends ResourceWork {
     }
   }
 
-  /** Step down through natural leaves we are standing on, one confirmed block at a time. */
+  /** A natural leaf can be removed underfoot only above a loaded, clear, safe landing. */
+  canopyLanding(below) {
+    for (let drop = 1; drop <= 3; drop++) {
+      const support = this.bot.blockAt(below.offset(0, -drop, 0))
+      if (
+        support?.boundingBox === 'block' &&
+        support.shapes?.some((shape) => shape[4] === 1) &&
+        !/magma|cactus|campfire|fire/.test(support.name)
+      ) {
+        const landing = support.position.offset(0, 1, 0)
+        return anyEntityInCell(this.bot, landing) ? null : landing
+      }
+      if (!isAir(support)) return null
+    }
+    return null
+  }
+
+  /** Descend natural leaves onto solid ground, allowing at most a three-block fall. */
   async descendCanopy() {
     const isLeaf = (block) => isNaturalLeaf(block, this.job.species)
     for (let step = 0; step < MAX_CLIMB_STEPS && !this.bot.entity.isInWater; step++) {
       const below = this.bot.entity.position.floored().offset(0, -1, 0)
-      const standingOnLeafOverSolid =
-        isLeaf(this.bot.blockAt(below)) &&
-        this.bot.blockAt(below.offset(0, -1, 0))?.boundingBox === 'block'
-      if (!standingOnLeafOverSolid) return
+      if (!isLeaf(this.bot.blockAt(below))) return
+      const landing = this.canopyLanding(below)
+      if (!landing) return
 
       const nearTree = this.job.roots.some(
         (r) => Math.hypot(r.x - below.x, r.z - below.z) <= CANOPY_WORK_RADIUS,
@@ -849,8 +874,8 @@ class TreeFarm extends ResourceWork {
         this.bot.entity.onGround !== false &&
         this.bot.entity.position.floored().equals(below.offset(0, 1, 0)) &&
         isLeaf(this.bot.blockAt(below)) &&
-        this.bot.blockAt(below.offset(0, -1, 0))?.boundingBox === 'block'
-      this.decide('Descending the natural canopy one supported block at a time.')
+        this.canopyLanding(below)?.equals(landing)
+      this.decide('Descending the natural canopy onto verified solid ground.')
       await this.dig(
         below,
         leavesName(this.job.species),
@@ -859,7 +884,7 @@ class TreeFarm extends ResourceWork {
         stillSafe,
       )
       await this.motionUntil(
-        () => this.bot.entity.onGround && this.bot.entity.position.floored().equals(below),
+        () => this.bot.entity.onGround && this.bot.entity.position.floored().equals(landing),
         'Land after clearing a canopy block',
       )
     }
@@ -938,7 +963,7 @@ class TreeFarm extends ResourceWork {
     movements.allowSprinting = false
     movements.maxDropDown = 2
     movements.canDig = true
-    movements.scafoldingBlocks = BUILDING_BLOCKS.map(
+    movements.scafoldingBlocks = CANOPY_MATERIALS.map(
       (n) => this.bot.registry.itemsByName[n]?.id,
     ).filter(Number.isInteger)
     movements.exclusionAreasBreak.push((block) =>
@@ -957,7 +982,7 @@ class TreeFarm extends ResourceWork {
 
   /**
    * Get into a working stance for the log at `pos`. Tries, in order: already there,
-   * the dirt-column trunk climb, a plain pathfinder route, and finally hand-built
+   * the cleared trunk climb, a plain pathfinder route, and finally hand-built
    * canopy stairs. Stair construction always leaves a return route.
    */
   async reachLog(pos) {
@@ -973,6 +998,7 @@ class TreeFarm extends ResourceWork {
       await this.timed(
         async () => {
           if (await this.tryDirectCanopyPath(goal, movements)) return
+          if (!pickCanopyMaterial(this.bot)) throw waitingForAccess()
           await this.buildCanopyStairs(pos, goal, movements)
         },
         60000,
@@ -1094,10 +1120,10 @@ class TreeFarm extends ResourceWork {
           (a, b) =>
             Number(goal.isEnd(b)) - Number(goal.isEnd(a)) || a.distanceTo(pos) - b.distanceTo(pos),
         )
-      if (!choices.length)
-        throw new Error(
-          'No supported next canopy step. Provide dirt or clear access beside this tree.',
-        )
+      if (!choices.length) {
+        if (!pickCanopyMaterial(this.bot)) throw waitingForAccess()
+        throw new Error('No supported next canopy step. Clear access beside this tree.')
+      }
 
       const next = choices[0]
       this.agent.log?.(
@@ -1279,6 +1305,9 @@ class TreeFarm extends ResourceWork {
         .sort((a, b) => a.y - b.y)
       for (const pos of starterLogs.slice(0, 3)) {
         if (this.total(/_log$/) * 4 + this.total(/_planks$/) >= 12) break
+        // Tool preparation must not run the same failed canopy route that the
+        // harvest will try next. Bootstrap only from wood already within reach.
+        if (!this.canWork(pos)) continue
         this.decide('Harvesting starter wood from the saved tree to craft tools.')
         await this.harvestLog(pos)
       }
@@ -1304,15 +1333,60 @@ class TreeFarm extends ResourceWork {
     }
   }
 
-  async prepareDirt() {
+  canopyStock() {
+    return this.bot.inventory
+      .items()
+      .filter((item) => CANOPY_MATERIALS.includes(item.name))
+      .reduce((sum, item) => sum + item.count, 0)
+  }
+
+  async craftCanopyStock(minimum) {
+    for (let attempt = 0; this.canopyStock() < minimum && attempt < 16; attempt++) {
+      const log = this.bot.inventory
+        .items()
+        .find((item) => item.count > 0 && SPECIES.some((species) => item.name === logName(species)))
+      if (!log) return
+      try {
+        this.decide('Using harvested wood to make recoverable climbing steps.')
+        await this.craft(log.name.replace(/_log$/, '_planks'))
+      } catch (error) {
+        this.supplyFailure('Could not craft climbing steps', error)
+        return
+      }
+    }
+  }
+
+  async prepareDirt(forPlanting = false) {
     const minY = Math.min(...this.job.roots.map((p) => p.y))
     const height = Math.max(...this.job.logs.map((p) => p.y)) - minY
-    const target = Math.min(64, Math.max(8, height + MAX_STAIR_STEPS + this.job.roots.length))
-    if (this.count('dirt') >= target) return
+    const target = forPlanting
+      ? this.job.roots.length
+      : Math.min(64, Math.max(8, height + MAX_STAIR_STEPS + this.job.roots.length))
+    // For a straight trunk, a single step can be enough to reach its last log.
+    // Branches need a larger allowance for a supported stair route.
+    const branched = this.job.logs.some((p) => !this.job.roots.some((root) => sameColumn(root, p)))
+    const minimum =
+      Math.max(1, Math.ceil(height + 0.5 - EYE_HEIGHT - BLOCK_REACH)) +
+      (branched ? MAX_STAIR_STEPS : 0)
+    const enough = () =>
+      forPlanting ? this.count('dirt') >= target : this.canopyStock() >= minimum
+    if (enough()) return
+    // Harvested wood is already here, and plank recipes need no crafting table.
+    if (!forPlanting) await this.craftCanopyStock(minimum)
+    if (enough() || Date.now() < (this.nextDirtAttemptAt || 0)) return
+    this.nextDirtAttemptAt = Date.now() + SUPPLY_RETRY_MS
+    // A route or our stance may have changed since the previous supply trip.
+    // Keep other failed targets, but retry soil after the supply cooldown.
+    for (const key of this.failedTargets)
+      if (/:(grass_block|dirt)$/.test(key)) this.failedTargets.delete(key)
     try {
       this.decide(`Preparing dirt for tree access: ${this.count('dirt')}/${target}.`)
       await this.restock(['dirt'], 128, 'tree access dirt')
-      if (this.count('dirt') >= target) return
+    } catch (error) {
+      this.supplyFailure('Could not retrieve tree access dirt; checking nearby soil', error)
+    }
+    if (enough()) return
+    try {
       await this.gather(
         ['dirt', 'grass_block'],
         () => this.count('dirt') >= target,
@@ -1323,6 +1397,7 @@ class TreeFarm extends ResourceWork {
     } catch (error) {
       this.supplyFailure('Dirt preparation deferred; harvesting reachable logs first', error)
     }
+    if (!forPlanting) await this.craftCanopyStock(minimum)
   }
 
   /**
@@ -1517,7 +1592,7 @@ class TreeFarm extends ResourceWork {
     const blocked = (message) => Object.assign(new Error(message), { code: 'PLANTING_BLOCKED' })
     if (!isAir(soil))
       throw blocked(`Replanting saved: soil at ${positionKey(pos)} is ${soil?.name || 'unloaded'}.`)
-    if (!this.count('dirt')) await this.prepareDirt()
+    if (!this.count('dirt')) await this.prepareDirt(true)
     const support = this.bot.blockAt(pos.offset(0, -1, 0))
     if (!this.count('dirt') || support?.boundingBox !== 'block')
       throw blocked(`Replanting saved: need dirt and solid support at ${positionKey(pos)}.`)
@@ -1604,7 +1679,7 @@ class TreeFarm extends ResourceWork {
       throw new Error('No supported mature trees nearby. Waiting for saplings to grow.')
 
     // After an interrupted climb, return safely before collecting supplies.
-    if (this.job.scaffolds?.length) await this.recoverScaffolds()
+    await this.recoverScaffolds()
     if (this.job.logs.some((p) => this.bot.blockAt(p)?.name === logName(this.job.species))) {
       await this.prepareTools()
       await this.prepareDirt()
@@ -1638,7 +1713,10 @@ class TreeFarm extends ResourceWork {
     const progressed = this.jobProgress() > progressBefore
     const recoveredSupports = (this.job?.scaffolds?.length || 0) < scaffoldsBefore
     const madeProgress =
-      error.code === 'WAITING_FOR_SAPLINGS' || !this.job || progressed || recoveredSupports
+      ['WAITING_FOR_SAPLINGS', 'WAITING_FOR_TREE_ACCESS'].includes(error.code) ||
+      !this.job ||
+      progressed ||
+      recoveredSupports
     this.stalledPasses = madeProgress ? 0 : (this.stalledPasses || 0) + 1
     if (this.job && this.stalledPasses >= MAX_STALLED_PASSES) {
       const who = this.agent.username || this.bot.username
@@ -1654,7 +1732,12 @@ class TreeFarm extends ResourceWork {
     this.addIssue(error.message)
     this.decide(`Tree farmer waiting: ${error.message}`)
     // Retry an in-progress tree quickly; back off longer when there is nothing to work on.
-    const delay = error.code === 'WAITING_FOR_SAPLINGS' || !this.job ? 10000 : 1500
+    const delay =
+      error.code === 'WAITING_FOR_TREE_ACCESS' && !pickCanopyMaterial(this.bot)
+        ? Math.max(1500, (this.nextDirtAttemptAt || Date.now() + SUPPLY_RETRY_MS) - Date.now())
+        : error.code === 'WAITING_FOR_SAPLINGS' || !this.job
+          ? 10000
+          : 1500
     this.plan.waitingUntil = Date.now() + delay
     this.agent.publish()
     try {
@@ -1706,6 +1789,10 @@ class TreeFarm extends ResourceWork {
           if (error.code === 'AIR_RECOVERY' || this.needsAir) {
             await this.recoverAir()
             continue
+          }
+          if (error.code === 'WAITING_FOR_TREE_ACCESS') {
+            await this.recoverScaffolds()
+            for (const root of this.job.roots) await this.pickup(root)
           }
           this.trackStall(error, progressBefore, scaffoldsBefore)
           await this.waitOutFailure(error)
